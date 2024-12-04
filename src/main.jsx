@@ -1,20 +1,24 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './App';
-import InitializationWrapper from './components/InitializationWrapper';
+import { RouterProvider } from 'react-router-dom';
+import { router } from './router';
 import './index.css';
+import { InitializationManager } from './utils/initialization/InitializationManager';
+import { Logger } from './utils/logging/Logger';
 
-const root = document.getElementById('root');
-if (!root) {
-  throw new Error('Root element not found');
-}
+// Initialize the app using the initialization manager
+InitializationManager.getInstance()
+  .initialize()
+  .catch(error => {
+    Logger.error('Main', 'Failed to initialize application', error);
+  });
 
-const reactRoot = createRoot(root);
+const container = document.getElementById('root');
+const root = createRoot(container);
 
-reactRoot.render(
+// Render with RouterProvider
+root.render(
   <React.StrictMode>
-    <InitializationWrapper>
-      <App />
-    </InitializationWrapper>
+    <RouterProvider router={router} future={{ v7_startTransition: true }} />
   </React.StrictMode>
 );

@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { resolve } from 'path';
 
 export default defineConfig({
   plugins: [react()],
@@ -15,17 +16,17 @@ export default defineConfig({
       'Access-Control-Allow-Headers': 'Content-Type, Accept'
     },
     fs: {
-      strict: true
+      strict: true,
+      allow: ['..']
     },
     middlewareMode: false
   },
-  resolve: {
-    extensions: ['.mjs', '.js', '.jsx', '.json']
-  },
+  publicDir: 'public',
   build: {
     rollupOptions: {
-      output: {
-        format: 'es'
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        sw: resolve(__dirname, 'public/mockServiceWorker.js')
       }
     }
   }

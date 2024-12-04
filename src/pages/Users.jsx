@@ -1,28 +1,86 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Pencil } from 'lucide-react';
+import { Plus, Search, Pencil, AlertCircle } from 'lucide-react';
 import Breadcrumb from '../components/Breadcrumb';
+import { fetchUsers, updateUser } from '../services/api';
+import { resetDatabase } from '../services/storage';
+import { initializeStores } from '../mocks/initializeStores';
+import useConfigStore from '../services/config';
 
 function Users() {
+  const { useMockData } = useConfigStore();
   const [filters, setFilters] = useState({
     search: '',
     onlyDisabled: false,
-    onlyPrivileged: true
+    onlyPrivileged: false,
+    page: 1,
+    pageSize: 10
   });
+  
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selectedUsers, setSelectedUsers] = useState(new Set());
 
-  const users = [
-    {
-      id: 'bbbc50b7-ff13-46fa-8408-e7289dced4f8',
-      firstName: 'testadmin3',
-      lastName: 'abakaresuk-abakatest',
-      login: 'testadmin3-abakaresuk-abakatest@yopmail.com',
-      email: 'testadmin3-abakaresuk-abakatest@yopmail.com',
-      roles: ['Admin'],
-      enterprise: 'AbakaResellerUK|AbakaTest',
-      disabled: false
-    },
-    // ... other users
-  ];
+  // Handle data loading
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Initialize mock data if needed
+        if (useMockData) {
+          console.log('Initializing mock data for Users component...');
+          await initializeStores(false);
+        }
+
+        console.log('Loading users with mock data:', useMockData);
+        const response = await fetchUsers();
+        setUsers(response?.data || []);
+      } catch (err) {
+        console.error('Error loading users:', err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [filters.page, filters.pageSize, useMockData]);
+
+  const handleToggleUserStatus = async (user) => {
+    try {
+      const updatedUser = await updateUser(user.id, {
+        ...user,
+        disabled: !user.disabled,
+        disabledDate: !user.disabled ? new Date().toISOString() : null
+      });
+      
+      setUsers(users.map(u => u.id === updatedUser.id ? updatedUser : u));
+    } catch (err) {
+      console.error('Error toggling user status:', err);
+      // Show error toast/notification here
+    }
+  };
+
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      setSelectedUsers(new Set(filteredUsers.map(user => user.id)));
+    } else {
+      setSelectedUsers(new Set());
+    }
+  };
+
+  const handleSelectUser = (userId) => {
+    const newSelected = new Set(selectedUsers);
+    if (newSelected.has(userId)) {
+      newSelected.delete(userId);
+    } else {
+      newSelected.add(userId);
+    }
+    setSelectedUsers(newSelected);
+  };
 
   const filteredUsers = users.filter(user => {
     const matchesSearch = !filters.search || 
@@ -36,6 +94,14 @@ function Users() {
 
     return matchesSearch && matchesDisabled && matchesPrivileged;
   });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-500"></div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -91,13 +157,25 @@ function Users() {
         </div>
       </div>
 
+      {error && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+          <AlertCircle size={20} />
+          <span>{error}</span>
+        </div>
+      )}
+
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="bg-gray-50 border-b">
                 <th className="w-10 py-4 px-6">
-                  <input type="checkbox" className="rounded border-gray-300" />
+                  <input 
+                    type="checkbox" 
+                    className="rounded border-gray-300"
+                    checked={selectedUsers.size === filteredUsers.length}
+                    onChange={handleSelectAll}
+                  />
                 </th>
                 <th className="text-left py-4 px-6 font-medium">First Name</th>
                 <th className="text-left py-4 px-6 font-medium">Last Name</th>
@@ -113,7 +191,12 @@ function Users() {
               {filteredUsers.map((user) => (
                 <tr key={user.id} className={`border-b hover:bg-gray-50 ${user.disabled ? 'bg-gray-50' : ''}`}>
                   <td className="py-4 px-6">
-                    <input type="checkbox" className="rounded border-gray-300" />
+                    <input 
+                      type="checkbox" 
+                      className="rounded border-gray-300"
+                      checked={selectedUsers.has(user.id)}
+                      onChange={() => handleSelectUser(user.id)}
+                    />
                   </td>
                   <td className="py-4 px-6">{user.firstName}</td>
                   <td className="py-4 px-6">{user.lastName}</td>
@@ -132,7 +215,7 @@ function Users() {
                     </div>
                   </td>
                   <td className="py-4 px-6 hidden lg:table-cell">
-                    {user.disabled && user.disabledDate}
+                    {user.disabled && new Date(user.disabledDate).toLocaleDateString()}
                   </td>
                   <td className="py-4 px-6 hidden lg:table-cell">{user.enterprise}</td>
                   <td className="py-4 px-6">
@@ -145,6 +228,7 @@ function Users() {
                         <Pencil size={16} />
                       </Link>
                       <button
+                        onClick={() => handleToggleUserStatus(user)}
                         className={`px-3 py-1 rounded text-sm font-medium ${
                           user.disabled
                             ? 'text-green-500 hover:text-green-600'
@@ -164,19 +248,34 @@ function Users() {
         <div className="flex flex-col lg:flex-row items-center justify-between px-6 py-4 border-t gap-4">
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-600">Rows per page:</span>
-            <select className="border rounded px-2 py-1">
-              <option>10</option>
+            <select 
+              className="border rounded px-2 py-1"
+              value={filters.pageSize}
+              onChange={(e) => setFilters({ ...filters, pageSize: Number(e.target.value) })}
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
             </select>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-600">
-              Page 1 of {Math.ceil(filteredUsers.length / 10)}
+              Page {filters.page} of {Math.ceil(filteredUsers.length / filters.pageSize)}
             </span>
             <div className="flex gap-2">
-              <button className="px-3 py-1 bg-sky-500 text-white rounded">1</button>
-              <button className="px-3 py-1 text-gray-600 hover:bg-gray-100 rounded">2</button>
-              <button className="px-3 py-1 text-gray-600 hover:bg-gray-100 rounded">3</button>
-              <button className="px-3 py-1 text-gray-600 hover:bg-gray-100 rounded">»</button>
+              {Array.from({ length: Math.ceil(filteredUsers.length / filters.pageSize) }, (_, i) => i + 1).map(page => (
+                <button
+                  key={page}
+                  onClick={() => setFilters({ ...filters, page })}
+                  className={`px-3 py-1 rounded ${
+                    page === filters.page
+                      ? 'bg-sky-500 text-white'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  {page}
+                </button>
+              ))}
             </div>
           </div>
         </div>

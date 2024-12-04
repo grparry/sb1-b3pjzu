@@ -1,0 +1,59 @@
+{
+  "collections": [
+    {
+      "id": "car-purchase-loan",
+      "name": "Car Purchase Loan",
+      "items": [
+        "high-users-repairs"
+      ]
+    }
+  ],
+  "errors": [],
+  "media": [],
+  "mockResponses": [],
+  "network": [],
+  "nudges": [
+    {
+      "id": "high-users-repairs",
+      "title": "Auto Loan for High Users with Repairs",
+      "collection": "car-purchase-loan",
+      "businessValue": "High conversion rate for auto repair loan products222",
+      "description": "Targeted promotion for auto repair loans to existing car owners with repair history",
+      "version": "Version 5 - Under Review",
+      "notificationTitle": "Special Auto Loan Offer",
+      "notificationBody": "Get a great rate on your auto repair loan",
+      "notificationBody2": "Get a great rate on your auto repair loan",
+      "image": "",
+      "ageRange": {
+        "min": 25,
+        "max": 55
+      },
+      "income": {
+        "min": 50000,
+        "max": 150000
+      },
+      "gender": "-1",
+      "lastNotification": {
+        "days": "30"
+      },
+      "registration": {
+        "registeredOnly": false
+      },
+      "selectedTags": [
+        {
+          "type": "Must Have",
+          "conditions": [
+            {
+              "tags": [
+                "Car Owner",
+                "Car Repairs"
+              ],
+              "operator": "AND"
+            }
+          ]
+        }
+      ],
+      "comment": "Initial version targeting car owners with repair history"
+    }
+  ]
+}

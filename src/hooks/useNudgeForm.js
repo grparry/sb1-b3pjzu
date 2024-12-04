@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { createNudge, updateNudge } from '../services/api';
 import { logError } from '../services/storage';
 import useNudgeStore from '../stores/nudgeStore';
 
@@ -24,7 +23,13 @@ const initialFormData = {
 
 function useNudgeForm(id, onSuccess) {
   const [formData, setFormData] = useState(id ? null : { ...initialFormData });
-  const { fetchNudge, isLoading, error: storeError } = useNudgeStore();
+  const { 
+    fetchNudge, 
+    createNudge, 
+    updateNudge,
+    isLoading, 
+    error: storeError 
+  } = useNudgeStore();
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -61,27 +66,22 @@ function useNudgeForm(id, onSuccess) {
   }, [id, fetchNudge]);
 
   const handleSubmit = async (e) => {
-    if (e) {
-      e.preventDefault();
-    }
-
-    if (!formData) {
-      throw new Error('No form data available');
-    }
+    e.preventDefault();
     
     try {
       setError(null);
+      
       if (id) {
         await updateNudge(id, formData);
       } else {
         await createNudge(formData);
       }
+      
       onSuccess?.();
     } catch (err) {
       await logError(err);
       console.error('Error saving nudge:', err);
       setError(err.message);
-      throw err;
     }
   };
 

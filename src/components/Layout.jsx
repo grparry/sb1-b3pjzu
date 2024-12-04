@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
 import { Menu } from 'lucide-react';
-import { useAuth } from '../hooks/useAuth';
+import useAuth from '../hooks/useAuth';
 import Sidebar from './Sidebar';
+import ApiModeToggle from './ApiModeToggle';
 
 function Layout() {
   const { isAuthenticated } = useAuth();
@@ -32,7 +33,7 @@ function Layout() {
 
       {/* Sidebar */}
       <div
-        className={`fixed inset-y-0 left-0 z-50 lg:relative transform ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 lg:sticky lg:top-0 transform ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
         } lg:translate-x-0 transition-transform duration-300 ease-in-out`}
       >
@@ -40,9 +41,12 @@ function Layout() {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 p-4 lg:p-8 lg:ml-64">
+      <div className="flex-1">
         <Outlet />
       </div>
+
+      {/* API Mode Toggle */}
+      <ApiModeToggle />
     </div>
   );
 }

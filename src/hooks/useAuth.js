@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 const useAuthStore = create(
   persist(
@@ -18,12 +18,12 @@ const useAuthStore = create(
     }),
     {
       name: 'auth-storage',
-      getStorage: () => localStorage
+      storage: createJSONStorage(() => localStorage)
     }
   )
 );
 
-export function useAuth() {
+export default function useAuth() {
   const { isAuthenticated, user, login, logout } = useAuthStore();
   return { isAuthenticated, user, login, logout };
 }

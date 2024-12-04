@@ -1,69 +1,61 @@
-import { getDB, clearStore, putInStore } from '../services/storage';
+import { getDB, clearStore, putInStore, getAllFromStore } from '../services/storage';
+import { mockData } from './mockData';
+import useConfigStore from '../services/config';
 
-const mockData = {
-  nudges: [
-    {
-      id: 'high-users-repairs',
-      title: 'Auto Loan for High Users with Repairs',
-      collection: 'car-purchase-loan',
-      businessValue: 'High conversion rate for auto repair loan products',
-      priority: 'high',
-      description: 'Targeted promotion for auto repair loans to existing car owners with repair history',
-      version: 'Version 5 - Under Review',
-      notificationTitle: 'Special Auto Loan Offer',
-      notificationBody: 'Get a great rate on your auto repair loan',
-      image: '',
-      ageRange: { min: 25, max: 55 },
-      income: { min: 50000, max: 150000 },
-      gender: '-1',
-      lastNotification: { days: '30' },
-      registration: { registeredOnly: false },
-      selectedTags: [
-        {
-          type: 'Must Have',
-          conditions: [{
-            tags: ['Car Owner', 'Car Repairs'],
-            operator: 'AND'
-          }]
-        }
-      ],
-      comment: 'Initial version targeting car owners with repair history'
-    }
-  ],
-  collections: [
-    {
-      id: 'car-purchase-loan',
-      name: 'Car Purchase Loan',
-      items: ['high-users-repairs']
-    }
-  ]
-};
-
-export async function initializeStores() {
-  console.log('Starting store initialization...');
+export async function initializeStores(force = false) {
+  console.log(`Starting store initialization... (force=${force})`);
   
   try {
-    const db = await getDB();
+    const { useMockData } = useConfigStore.getState();
     
-    // Initialize each store with mock data
-    for (const [storeName, items] of Object.entries(mockData)) {
+    // If we're not using mock data and not forcing initialization, skip
+    if (!useMockData && !force) {
+      console.log('Mock data is disabled, skipping initialization');
+      return;
+    }
+
+    // Check if any stores have data first
+    const storeNames = ['nudges', 'collections', 'media', 'folders', 'users'];
+    let hasExistingData = false;
+
+    if (!force) {
+      for (const storeName of storeNames) {
+        const items = await getAllFromStore(storeName);
+        if (items && items.length > 0) {
+          hasExistingData = true;
+          break;
+        }
+      }
+    }
+
+    if (hasExistingData && !force) {
+      console.log('Stores already have data, skipping initialization');
+      return;
+    }
+
+    // Clear and initialize each store
+    for (const storeName of storeNames) {
       console.log(`Initializing ${storeName} store...`);
-      
-      // Clear existing data
       await clearStore(storeName);
       
-      // Add new data
-      for (const item of items) {
-        await putInStore(storeName, item);
+      if (mockData[storeName] && mockData[storeName].length > 0) {
+        for (const item of mockData[storeName]) {
+          await putInStore(storeName, item);
+        }
+        console.log(`Added ${mockData[storeName].length} items to ${storeName}`);
+      } else {
+        console.log(`No mock data available for ${storeName}`);
       }
-      
-      console.log(`${storeName} store initialized with ${items.length} items`);
     }
-    
-    console.log('All stores initialized successfully');
-    return true;
+
+    // Enable mock data if we're initializing
+    if (!useMockData) {
+      useConfigStore.getState().setUseMockData(true);
+    }
+
+    console.log('Store initialization complete');
   } catch (error) {
-    console.error('Failed to initialize stores:', error);
+    console.error('Error during store initialization:', error);
     throw error;
   }
 }

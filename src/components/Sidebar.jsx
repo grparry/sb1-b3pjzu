@@ -2,7 +2,7 @@ import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { CircleUserRound, LayoutDashboard, Film, FolderOpen, Headphones, Users, Activity, Megaphone, CreditCard, LogOut, X, Bug } from 'lucide-react';
 import PropTypes from 'prop-types';
-import { useAuth } from '../hooks/useAuth';
+import useAuth from '../hooks/useAuth';
 
 function Sidebar({ onClose }) {
   const location = useLocation();

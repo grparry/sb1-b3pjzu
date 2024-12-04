@@ -1,16 +1,18 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Play, Pause, Send } from 'lucide-react';
 import Breadcrumb from '../components/Breadcrumb';
+import useCampaignStore from '../stores/campaignStore';
 
 function Campaigns() {
-  const campaigns = [
-    { id: 1, name: 'Campaign 16042021_1', description: 'Campaign 16042021_1', enterprise: 'AbakaTest', created: '4/16/2021 11:35:16 PM', status: 'Active' },
-    { id: 2, name: 'OTP Car loan', description: '', enterprise: 'AbakaTest', created: '4/30/2021 11:18:08 PM', status: 'Inactive' },
-    { id: 3, name: 'Campaign 16042021_2', description: 'Campaign 16042021_2', enterprise: 'AbakaTest', created: '4/16/2021 11:35:25 PM', status: 'Disabled' },
-    { id: 4, name: 'New Campaign', description: '', enterprise: 'AbakaTest', created: '5/4/2021 9:10:10 AM', status: 'Active' },
-    { id: 5, name: 'Campaign Test AA', description: 'Campaign Test AA', enterprise: 'AbakaTest', created: '4/9/2021 12:31:52 PM', status: 'Active' }
-  ];
+  const { 
+    campaigns,
+    activateCampaign,
+    deactivateCampaign,
+    testCampaign,
+    isLoading,
+    error 
+  } = useCampaignStore();
 
   const getStatusColor = (status) => {
     const colors = {
@@ -20,6 +22,36 @@ function Campaigns() {
     };
     return colors[status] || 'text-gray-500';
   };
+
+  const handleToggleStatus = async (campaign) => {
+    try {
+      if (campaign.status === 'Active') {
+        await deactivateCampaign(campaign.id);
+      } else {
+        await activateCampaign(campaign.id);
+      }
+    } catch (err) {
+      console.error('Error toggling campaign status:', err);
+    }
+  };
+
+  const handleTestCampaign = async (campaignId) => {
+    try {
+      await testCampaign(campaignId);
+      // Show success notification
+    } catch (err) {
+      console.error('Error testing campaign:', err);
+      // Show error notification
+    }
+  };
+
+  if (error) {
+    return (
+      <div className="p-6 text-red-500">
+        Error: {error}
+      </div>
+    );
+  }
 
   return (
     <>
@@ -43,44 +75,65 @@ function Campaigns() {
       </div>
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-gray-50 border-b">
-              <th className="text-left py-4 px-6 font-medium">Name</th>
-              <th className="text-left py-4 px-6 font-medium">Description</th>
-              <th className="text-left py-4 px-6 font-medium">Enterprise</th>
-              <th className="text-left py-4 px-6 font-medium">Created Date</th>
-              <th className="text-left py-4 px-6 font-medium">Status</th>
-              <th className="text-left py-4 px-6 font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {campaigns.map((campaign) => (
-              <tr key={campaign.id} className="border-b hover:bg-gray-50">
-                <td className="py-4 px-6">{campaign.name}</td>
-                <td className="py-4 px-6">{campaign.description}</td>
-                <td className="py-4 px-6">{campaign.enterprise}</td>
-                <td className="py-4 px-6">{campaign.created}</td>
-                <td className="py-4 px-6">
-                  <span className={getStatusColor(campaign.status)}>{campaign.status}</span>
-                </td>
-                <td className="py-4 px-6">
-                  <div className="flex items-center gap-2">
-                    <Link
-                      to={`/campaigns/edit/${campaign.id}`}
-                      className="p-1 hover:bg-gray-100 rounded text-gray-600 hover:text-gray-900"
-                    >
-                      <Pencil size={16} />
-                    </Link>
-                    <button className="p-1 hover:bg-gray-100 rounded text-red-500 hover:text-red-700">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </td>
+        {isLoading ? (
+          <div className="p-6 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-500 mx-auto"></div>
+          </div>
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="bg-gray-50 border-b">
+                <th className="text-left py-4 px-6 font-medium">Name</th>
+                <th className="text-left py-4 px-6 font-medium">Description</th>
+                <th className="text-left py-4 px-6 font-medium">Enterprise</th>
+                <th className="text-left py-4 px-6 font-medium">Created</th>
+                <th className="text-left py-4 px-6 font-medium">Status</th>
+                <th className="text-right py-4 px-6 font-medium">Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {campaigns.map((campaign) => (
+                <tr key={campaign.id} className="border-b last:border-b-0 hover:bg-gray-50">
+                  <td className="py-4 px-6">{campaign.name}</td>
+                  <td className="py-4 px-6">{campaign.description}</td>
+                  <td className="py-4 px-6">{campaign.enterprise}</td>
+                  <td className="py-4 px-6">{campaign.created}</td>
+                  <td className="py-4 px-6">
+                    <span className={getStatusColor(campaign.status)}>
+                      {campaign.status}
+                    </span>
+                  </td>
+                  <td className="py-4 px-6 text-right space-x-2">
+                    <button
+                      onClick={() => handleToggleStatus(campaign)}
+                      className="p-2 text-gray-500 hover:text-sky-500"
+                      title={campaign.status === 'Active' ? 'Deactivate' : 'Activate'}
+                    >
+                      {campaign.status === 'Active' ? (
+                        <Pause size={20} />
+                      ) : (
+                        <Play size={20} />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleTestCampaign(campaign.id)}
+                      className="p-2 text-gray-500 hover:text-sky-500"
+                      title="Test Campaign"
+                    >
+                      <Send size={20} />
+                    </button>
+                    <Link
+                      to={`/campaigns/${campaign.id}/edit`}
+                      className="inline-block p-2 text-gray-500 hover:text-sky-500"
+                    >
+                      <Pencil size={20} />
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </>
   );

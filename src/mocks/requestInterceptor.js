@@ -1,4 +1,5 @@
 import { handlers } from './handlers';
+import { getConfig } from '../services/config';
 
 // Helper to create JSON response with proper headers
 const createResponse = (data, status = 200) => {
@@ -21,8 +22,11 @@ export async function setupRequestInterception() {
     const request = new Request(input, init);
     const url = new URL(request.url, window.location.origin);
     
-    // Log request
-    console.debug('Request intercepted:', request.method, url.pathname);
+    // Log request if enabled
+    const { logNetworkTraffic } = getConfig();
+    if (logNetworkTraffic) {
+      console.debug('Request intercepted:', request.method, url.pathname);
+    }
 
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
@@ -41,7 +45,9 @@ export async function setupRequestInterception() {
       const match = handler.test(url.pathname, request);
       if (match) {
         try {
-          console.debug('Handler matched:', handler.name);
+          if (logNetworkTraffic) {
+            console.debug('Handler matched:', handler.name);
+          }
           const response = await handler.resolver(request, match);
           return response;
         } catch (error) {
@@ -55,7 +61,9 @@ export async function setupRequestInterception() {
     }
 
     // No handler found, pass through to original fetch
-    console.debug('No handler found, passing through');
+    if (logNetworkTraffic) {
+      console.debug('No handler found, passing through');
+    }
     return originalFetch(input, init);
   };
 

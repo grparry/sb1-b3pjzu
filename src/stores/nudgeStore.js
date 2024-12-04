@@ -1,5 +1,11 @@
 import { create } from 'zustand';
-import { getAllFromStore, getFromStore } from '../services/storage';
+import {
+  fetchNudges as apiFetchNudges,
+  fetchNudge as apiFetchNudge,
+  createNudge as apiCreateNudge,
+  updateNudge as apiUpdateNudge,
+  deleteNudge as apiDeleteNudge
+} from '../services/api';
 
 const useNudgeStore = create((set, get) => ({
   nudges: [],
@@ -10,8 +16,8 @@ const useNudgeStore = create((set, get) => ({
   fetchNudges: async () => {
     set({ isLoading: true, error: null });
     try {
-      const nudges = await getAllFromStore('nudges');
-      set({ nudges, isLoading: false });
+      const response = await apiFetchNudges();
+      set({ nudges: response.data || [], isLoading: false });
     } catch (error) {
       set({ error: error.message, isLoading: false });
     }
@@ -20,9 +26,61 @@ const useNudgeStore = create((set, get) => ({
   fetchNudge: async (id) => {
     set({ isLoading: true, error: null });
     try {
-      const nudge = await getFromStore('nudges', id);
+      const response = await apiFetchNudge(id);
+      const nudge = response.data;
       set({ currentNudge: nudge, isLoading: false });
       return nudge;
+    } catch (error) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
+
+  createNudge: async (data) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await apiCreateNudge(data);
+      const newNudge = response.data;
+      set(state => ({
+        nudges: [...state.nudges, newNudge],
+        currentNudge: newNudge,
+        isLoading: false
+      }));
+      return newNudge;
+    } catch (error) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
+
+  updateNudge: async (id, data) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await apiUpdateNudge(id, data);
+      const updatedNudge = response.data;
+      set(state => ({
+        nudges: state.nudges.map(nudge => 
+          nudge.id === id ? updatedNudge : nudge
+        ),
+        currentNudge: state.currentNudge?.id === id ? updatedNudge : state.currentNudge,
+        isLoading: false
+      }));
+      return updatedNudge;
+    } catch (error) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
+
+  deleteNudge: async (id) => {
+    set({ isLoading: true, error: null });
+    try {
+      await apiDeleteNudge(id);
+      set(state => ({
+        nudges: state.nudges.filter(nudge => nudge.id !== id),
+        currentNudge: state.currentNudge?.id === id ? null : state.currentNudge,
+        isLoading: false
+      }));
     } catch (error) {
       set({ error: error.message, isLoading: false });
       throw error;
