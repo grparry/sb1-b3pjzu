@@ -41,7 +41,7 @@ function Layout() {
       </div>
 
       {/* Main content */}
-      <div className="flex-1">
+      <div className="flex-1 pl-4">
         <Outlet />
       </div>
 
