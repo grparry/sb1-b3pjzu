@@ -1,14 +1,49 @@
 // API Base URL and endpoints
-const API_BASE = 'http://localhost:5173';  // Base URL for development
+const API_BASE = import.meta.env.DEV ? '' : 'https://backoffice-test.abaka.me';  // Use proxy in development
 const ENDPOINTS = {
-  NUDGE: `/api/studio/picks/nudge`,  // Keep base endpoint without trailing slash
-  USERS: `/api/user`,
-  MEDIA: `/api/media`,
-  FOLDERS: `/api/folders`,
-  CAMPAIGN: `/api/campaign`  // New campaign endpoint
+  TOKEN: '/api/enterprise/token',
+  NUDGE_ALL: '/api/studio/picks/nudge',
+  NUDGE_BY_ID: (id) => `/api/nudge/notification/${id}`,
+  USERS: `/api/accessmanagement/users`,
+  MEDIA: `/api/studio/media`,
+  FOLDERS: `/api/studio/media/folders`,
+  CAMPAIGN: `/api/campaign/activate`  // Updated campaign endpoint
 };
 
 import useConfigStore from './config';
+
+// Authentication credentials
+const AUTH_CREDENTIALS = {
+  "AppId": "a4745b09-e957-47e1-977a-c762ada74110",
+  "AppSecret": "F:CG660oWPj2lDyFjQ-tVF]v.c?oBy-g"
+};
+
+let authToken = null;
+
+// Function to get authentication token
+async function getAuthToken() {
+  if (authToken) return authToken;
+
+  const url = `${API_BASE}${ENDPOINTS.TOKEN}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'x-msw-bypass': 'true'
+    },
+    body: JSON.stringify(AUTH_CREDENTIALS)
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.message || 'Failed to get auth token');
+  }
+
+  const data = await response.json();
+  authToken = data.token;
+  return authToken;
+}
 
 // Helper function to log API requests
 async function logApiRequest(method, url, options = {}) {
@@ -17,14 +52,14 @@ async function logApiRequest(method, url, options = {}) {
     if (!logNetworkTraffic) return;
 
     const { headers = {}, body } = options;
-    const { logNetwork } = await import('./storage');
+    const { logNetwork } = await import('./storage/networkLogs');
     await logNetwork({
       type: 'api',
       operation: {
         type: 'request',
         method,
         url,
-        headers,
+        headers: Object.fromEntries(Object.entries(headers)),
         body: body ? JSON.parse(body) : undefined,
         timestamp: new Date().toISOString()
       }
@@ -40,24 +75,34 @@ async function logApiResponse(url, response, error = null) {
     const { logNetworkTraffic } = useConfigStore.getState();
     if (!logNetworkTraffic) return;
 
-    const { logNetwork } = await import('./storage');
+    const { logNetwork } = await import('./storage/networkLogs');
     const responseData = {
-      type: error ? 'error' : 'success',
+      type: error ? 'error' : (response?.ok ? 'success' : 'error'),
       operation: {
         type: 'response',
         url,
         status: response?.status,
         statusText: response?.statusText,
-        headers: response?.headers ? Object.fromEntries(Object.entries(response.headers)) : undefined,
+        headers: response?.headers ? Object.fromEntries(response.headers.entries()) : undefined,
         timestamp: new Date().toISOString()
       }
     };
 
-    if (error) {
+    if (error || !response?.ok) {
       responseData.error = {
-        message: error.message,
-        stack: error.stack
+        message: error?.message || `HTTP error! status: ${response?.status}`,
+        stack: error?.stack
       };
+    } else if (response?.ok) {
+      try {
+        const contentType = response.headers.get('content-type');
+        if (contentType?.includes('application/json')) {
+          const clonedResponse = response.clone();
+          responseData.operation.response = await clonedResponse.json();
+        }
+      } catch (err) {
+        console.warn('Failed to capture response data:', err);
+      }
     }
 
     await logNetwork(responseData);
@@ -80,90 +125,69 @@ async function handleResponse(response) {
   return response.text();
 }
 
+// Helper function to calculate Content-Length
+function calculateContentLength(body) {
+  if (!body) return '0';
+  return new TextEncoder().encode(body).length.toString();
+}
+
+// Helper function to get host from URL
+function getHost(url) {
+  try {
+    const urlObj = new URL(url);
+    return urlObj.host;
+  } catch {
+    return window.location.host;
+  }
+}
+
 // Helper function to make API calls with proper configuration
 async function makeApiCall(endpoint, options = {}) {
-  const { useMockData, apiBaseUrl, captureResponses } = useConfigStore.getState();
-  
-  // Construct the full URL
-  const baseUrl = useMockData ? API_BASE : apiBaseUrl;
-  const fullUrl = `${baseUrl}${endpoint}`;
-  
-  console.log(`[API] Making ${options.method || 'GET'} request to ${fullUrl}`, {
-    useMockData,
-    options
-  });
-  
-  await logApiRequest(options.method || 'GET', fullUrl, options);
-  
   try {
-    let response;
-    if (useMockData) {
-      // Get fresh data from IndexedDB for each request when using mock data
-      const { getAllFromStore, getFromStore } = await import('./storage');
-      
-      // Parse the endpoint to determine the store and id
-      const parts = endpoint.split('/').filter(p => p);
-      let store = parts[parts.length - 2] === 'picks' ? parts[parts.length - 1] : parts[1];
-      const id = parts[parts.length - 1] !== store ? parts[parts.length - 1] : null;
-      
-      // Map API endpoints to store names
-      const storeMap = {
-        'user': 'users',
-        'nudge': 'nudges',
-        'media': 'media',
-        'folders': 'folders'
-      };
-      
-      store = storeMap[store] || store;
-      
-      let mockData;
-      if (id && options.method !== 'POST') {
-        // If we have an ID, get the specific item
-        const item = await getFromStore(store, id);
-        mockData = { data: item };
-      } else {
-        // Otherwise get all items
-        const items = await getAllFromStore(store);
-        mockData = { data: items };
-      }
+    // Ensure options.headers exists
+    options.headers = options.headers || {};
 
-      response = new Response(JSON.stringify(mockData), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    } else {
-      response = await fetch(fullUrl, {
-        ...options,
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          ...options.headers
-        }
-      });
+    // Build the full URL
+    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
+
+    // Set Content-Length header if there's a body and header doesn't exist
+    if (options.body && !options.headers['Content-Length']) {
+      options.headers['Content-Length'] = calculateContentLength(options.body);
     }
 
-    // Store the response in mockResponses if capture is enabled
-    if (captureResponses) {
-      const { storeMockResponse } = await import('./storage');
-      // Clone the response before storing since it will be consumed
-      const responseClone = response.clone();
-      const responseData = await responseClone.json();
-      await storeMockResponse(
-        { method: options.method || 'GET', url: fullUrl, headers: options.headers },
-        responseClone,
-        responseData
-      );
+    // Set Host header if it doesn't exist
+    if (!options.headers['Host']) {
+      options.headers['Host'] = getHost(url);
     }
 
-    await logApiResponse(fullUrl, response);
+    // Add CORS headers
+    options.headers['Origin'] = window.location.origin;
+    options.mode = 'cors';
+    options.credentials = 'include';
 
-    if (!response.ok) {
-      throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    // Add authentication token if available and not requesting a token
+    if (!endpoint.includes(ENDPOINTS.TOKEN) && await getAuthToken()) {
+      options.headers['Authorization'] = `Bearer ${await getAuthToken()}`;
     }
 
+    // Log the request if enabled
+    await logApiRequest(options.method || 'GET', url, options);
+
+    // Make the API call
+    const response = await fetch(url, {
+      ...options,
+      headers: options.headers
+    });
+
+    // Log the response if enabled
+    await logApiResponse(url, response);
+
+    // Handle the response
     return handleResponse(response);
   } catch (error) {
-    await logApiResponse(fullUrl, null, error);
+    console.error('API call error:', error);
+    // Log error response if enabled
+    await logApiResponse(endpoint, null, error);
     throw error;
   }
 }
@@ -190,12 +214,97 @@ function shouldCaptureResponse(request) {
   }
 }
 
+// Transform data to NotificationRM format
+const transformToNotificationRM = (formData) => {
+  return {
+    id: formData.id || undefined,
+    title: formData.title,
+    description: formData.description,
+    channel: formData.channel,
+    status: formData.status,
+    type: formData.type,
+    shortUrl: formData.shortUrl,
+    priority: formData.priority,
+    contentTemplate: typeof formData.contentTemplate === 'string' 
+      ? formData.contentTemplate 
+      : {
+          nudgeCardName: formData.contentTemplate?.nudgeCardName || formData.title || '',
+          title: formData.contentTemplate?.title || formData.title || '',
+          welcomeMessage: formData.contentTemplate?.welcomeMessage || '',
+          body: formData.contentTemplate?.body || formData.description || '',
+          image: formData.contentTemplate?.image || '',
+          callToActionLabel: formData.contentTemplate?.callToActionLabel || '',
+          type: formData.contentTemplate?.type || 'INFO'
+        },
+    // Additional metadata stored in custom fields
+    metadata: {
+      collection: formData.collection,
+      businessValue: formData.businessValue,
+      priority: formData.priority,
+      version: formData.version,
+      ageRange: formData.ageRange,
+      income: formData.income,
+      gender: formData.gender,
+      lastNotification: formData.lastNotification,
+      registration: formData.registration,
+      selectedTags: formData.selectedTags,
+      comment: formData.comment
+    }
+  };
+};
+
+const transformFromNotificationRM = (notification) => {
+  if (!notification) return null;
+  
+  return {
+    id: notification.id,
+    title: notification.title,
+    description: notification.description,
+    channel: notification.channel,
+    status: notification.status,
+    type: notification.type,
+    shortUrl: notification.shortUrl,
+    priority: notification.priority,
+    contentTemplate: typeof notification.contentTemplate === 'string'
+      ? {
+          nudgeCardName: notification.title || '',
+          title: notification.title || '',
+          welcomeMessage: '',
+          body: notification.description || '',
+          image: '',
+          callToActionLabel: '',
+          type: 'INFO'
+        }
+      : notification.contentTemplate || {
+          nudgeCardName: notification.title || '',
+          title: notification.title || '',
+          welcomeMessage: '',
+          body: notification.description || '',
+          image: '',
+          callToActionLabel: '',
+          type: 'INFO'
+        },
+    // Extract metadata fields
+    collection: notification.metadata?.collection || '',
+    businessValue: notification.metadata?.businessValue || '',
+    priority: notification.metadata?.priority || 'NORMAL',
+    version: notification.metadata?.version || '1 - Draft',
+    ageRange: notification.metadata?.ageRange || { min: 18, max: 65 },
+    income: notification.metadata?.income || { min: 0, max: 0 },
+    gender: notification.metadata?.gender || '-1',
+    lastNotification: notification.metadata?.lastNotification || { days: '' },
+    registration: notification.metadata?.registration || { registeredOnly: false },
+    selectedTags: notification.metadata?.selectedTags || [],
+    comment: notification.metadata?.comment || ''
+  };
+};
+
 // API Functions
-export async function fetchUsers() {
+async function fetchUsers() {
   return makeApiCall(ENDPOINTS.USERS);
 }
 
-export async function fetchUser(userId) {
+async function fetchUser(userId) {
   if (!userId) {
     throw new Error('User ID is required');
   }
@@ -210,7 +319,7 @@ export async function fetchUser(userId) {
   return makeApiCall(url, options);
 }
 
-export async function createUser(data) {
+async function createUser(data) {
   if (!data) {
     throw new Error('User data is required');
   }
@@ -228,7 +337,7 @@ export async function createUser(data) {
   return makeApiCall(url, options);
 }
 
-export async function updateUser(userId, data) {
+async function updateUser(userId, data) {
   if (!userId || !data) {
     throw new Error('User ID and data are required');
   }
@@ -246,7 +355,7 @@ export async function updateUser(userId, data) {
   return makeApiCall(url, options);
 }
 
-export async function deleteUser(userId) {
+async function deleteUser(userId) {
   if (!userId) {
     throw new Error('User ID is required');
   }
@@ -263,74 +372,83 @@ export async function deleteUser(userId) {
 }
 
 // Nudge-related API calls
-export async function fetchNudge(nudgeId) {
+async function fetchNudges(channel = 'APP_INSTANT') {
+  const url = ENDPOINTS.NUDGE_ALL;
+  const options = {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ channel })
+  };
+
+  const response = await makeApiCall(url, options);
+  return response.data.map(transformFromNotificationRM);
+}
+
+async function fetchNudge(nudgeId) {
   if (!nudgeId) {
     throw new Error('Nudge ID is required');
   }
 
-  const url = `${ENDPOINTS.NUDGE}/${nudgeId}`;
+  const url = ENDPOINTS.NUDGE_BY_ID(nudgeId);
   const options = {
     headers: {
       'Accept': 'application/json'
     }
   };
 
-  return makeApiCall(url, options);
+  const response = await makeApiCall(url, options);
+  return transformFromNotificationRM(response.data);
 }
 
-export async function fetchNudges() {
-  const url = ENDPOINTS.NUDGE;
-  const options = {
-    headers: {
-      'Accept': 'application/json'
-    }
-  };
-
-  return makeApiCall(url, options);
-}
-
-export async function createNudge(data) {
+async function createNudge(data) {
   if (!data) {
     throw new Error('Nudge data is required');
   }
 
-  const url = ENDPOINTS.NUDGE;
+  const notificationRM = transformToNotificationRM(data);
+  const url = ENDPOINTS.NUDGE_ALL;
   const options = {
-    method: 'POST',
+    method: 'PUT',
     headers: { 
-      'Content-Type': 'application/json',
-      'Accept': 'application/json'
+      'Accept': 'application/json',
+      'Content-Type': 'application/json'
     },
-    body: JSON.stringify(data)
+    body: JSON.stringify([notificationRM]) // API expects an array
   };
 
-  return makeApiCall(url, options);
+  const response = await makeApiCall(url, options);
+  return transformFromNotificationRM(response.data[0]);
 }
 
-export async function updateNudge(nudgeId, data) {
+async function updateNudge(nudgeId, data) {
   if (!nudgeId || !data) {
     throw new Error('Nudge ID and data are required');
   }
 
-  const url = `${ENDPOINTS.NUDGE}/${nudgeId}`;
+  const notificationRM = transformToNotificationRM({ ...data, id: nudgeId });
+  const url = ENDPOINTS.NUDGE_BY_ID(nudgeId);
   const options = {
     method: 'PUT',
     headers: { 
-      'Content-Type': 'application/json',
-      'Accept': 'application/json'
+      'Accept': 'application/json',
+      'Content-Type': 'application/json'
     },
-    body: JSON.stringify(data)
+    body: JSON.stringify(notificationRM)
   };
 
-  return makeApiCall(url, options);
+  const response = await makeApiCall(url, options);
+  return transformFromNotificationRM(response.data);
 }
 
-export async function deleteNudge(nudgeId) {
+async function deleteNudge(nudgeId) {
   if (!nudgeId) {
     throw new Error('Nudge ID is required');
   }
 
-  const url = `${ENDPOINTS.NUDGE}/${nudgeId}`;
+  const url = ENDPOINTS.NUDGE_BY_ID(nudgeId);
   const options = {
     method: 'DELETE',
     headers: {
@@ -342,12 +460,12 @@ export async function deleteNudge(nudgeId) {
 }
 
 // Media-related API calls
-export async function fetchMedia(folderId = '') {
+async function fetchMedia(folderId = '') {
   const url = folderId ? `${ENDPOINTS.MEDIA}?folderId=${folderId}` : ENDPOINTS.MEDIA;
   return makeApiCall(url);
 }
 
-export async function fetchMediaItem(mediaId) {
+async function fetchMediaItem(mediaId) {
   if (!mediaId) {
     throw new Error('Media ID is required');
   }
@@ -356,7 +474,7 @@ export async function fetchMediaItem(mediaId) {
   return makeApiCall(url);
 }
 
-export async function uploadMedia(data, folderId = '') {
+async function uploadMedia(data, folderId = '') {
   const formData = new FormData();
   
   if (data instanceof File) {
@@ -384,7 +502,7 @@ export async function uploadMedia(data, folderId = '') {
   return makeApiCall(url, options);
 }
 
-export async function updateMedia(mediaId, data) {
+async function updateMedia(mediaId, data) {
   if (!mediaId || !data) {
     throw new Error('Media ID and data are required');
   }
@@ -402,7 +520,7 @@ export async function updateMedia(mediaId, data) {
   return makeApiCall(url, options);
 }
 
-export async function deleteMedia(mediaId) {
+async function deleteMedia(mediaId) {
   if (!mediaId) {
     throw new Error('Media ID is required');
   }
@@ -416,17 +534,22 @@ export async function deleteMedia(mediaId) {
 }
 
 // Folder-related API calls
-export async function fetchFolders() {
-  const { useMockData } = useConfigStore.getState();
-  if (useMockData) {
-    const { getAllFromStore } = await import('./storage');
-    const folders = await getAllFromStore('folders');
-    return folders || [];
+async function fetchFolders() {
+  try {
+    const { useMockData } = useConfigStore.getState();
+    if (useMockData) {
+      const { getAllFromStore } = await import('./storage');
+      const folders = await getAllFromStore('mediaFolders');  // Updated from 'folders' to 'mediaFolders'
+      return folders || [];
+    }
+    return makeApiCall(ENDPOINTS.FOLDERS);
+  } catch (error) {
+    console.error('Error fetching folders:', error);
+    throw error;
   }
-  return makeApiCall(ENDPOINTS.FOLDERS);
 }
 
-export async function fetchFolder(folderId) {
+async function fetchFolder(folderId) {
   if (!folderId) {
     throw new Error('Folder ID is required');
   }
@@ -435,7 +558,7 @@ export async function fetchFolder(folderId) {
   return makeApiCall(url);
 }
 
-export async function createFolder(data) {
+async function createFolder(data) {
   const url = ENDPOINTS.FOLDERS;
   const options = {
     method: 'POST',
@@ -449,7 +572,7 @@ export async function createFolder(data) {
   return makeApiCall(url, options);
 }
 
-export async function updateFolder(folderId, data) {
+async function updateFolder(folderId, data) {
   if (!folderId || !data) {
     throw new Error('Folder ID and data are required');
   }
@@ -467,7 +590,7 @@ export async function updateFolder(folderId, data) {
   return makeApiCall(url, options);
 }
 
-export async function deleteFolder(folderId) {
+async function deleteFolder(folderId) {
   if (!folderId) {
     throw new Error('Folder ID is required');
   }
@@ -481,12 +604,12 @@ export async function deleteFolder(folderId) {
 }
 
 // Campaign-related API calls
-export async function activateCampaign(campaignId) {
+async function activateCampaign(campaignId) {
   if (!campaignId) {
     throw new Error('Campaign ID is required');
   }
 
-  const url = `${ENDPOINTS.CAMPAIGN}/activate`;
+  const url = `${ENDPOINTS.CAMPAIGN}`;
   const options = {
     method: 'POST',
     headers: {
@@ -499,7 +622,7 @@ export async function activateCampaign(campaignId) {
   return makeApiCall(url, options);
 }
 
-export async function deactivateCampaign(campaignId) {
+async function deactivateCampaign(campaignId) {
   if (!campaignId) {
     throw new Error('Campaign ID is required');
   }
@@ -517,7 +640,7 @@ export async function deactivateCampaign(campaignId) {
   return makeApiCall(url, options);
 }
 
-export async function testCampaign(campaignId) {
+async function testCampaign(campaignId) {
   if (!campaignId) {
     throw new Error('Campaign ID is required');
   }
@@ -534,3 +657,12 @@ export async function testCampaign(campaignId) {
 
   return makeApiCall(url, options);
 }
+
+export {
+  fetchUsers, fetchUser, createUser, updateUser, deleteUser,
+  fetchNudges, fetchNudge, createNudge, updateNudge, deleteNudge,
+  fetchMedia, fetchMediaItem, uploadMedia, updateMedia, deleteMedia,
+  fetchFolders, fetchFolder, createFolder, updateFolder, deleteFolder,
+  activateCampaign, deactivateCampaign, testCampaign,
+  makeApiCall
+};
