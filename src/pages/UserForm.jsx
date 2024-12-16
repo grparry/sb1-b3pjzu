@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Breadcrumb from '../components/Breadcrumb';
+import { logger } from '../services/utils/logging'; // Assuming logger is imported from a separate file
 
 function UserForm() {
   const { id } = useParams();
@@ -52,7 +53,7 @@ function UserForm() {
           };
           setFormData(mockData);
         } catch (error) {
-          console.error('Error fetching user:', error);
+          logger.error('Error fetching user', error);
         } finally {
           setIsLoading(false);
         }
@@ -69,7 +70,7 @@ function UserForm() {
       await new Promise(resolve => setTimeout(resolve, 500));
       navigate('/users');
     } catch (error) {
-      console.error('Error saving user:', error);
+      logger.error('Error saving user', error);
     }
   };
 

@@ -37,6 +37,7 @@ export default function TreeViewCompareModal({
             onApproveNew={onApproveNew}
             onCreateNew={onCreateNew}
             onUpdateExisting={onUpdateExisting}
+            onDatabaseRecordChange={() => {}}
             storeName={storeKey}
           />
         </div>

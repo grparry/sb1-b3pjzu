@@ -1,6 +1,14 @@
-import { Logger } from '../logging/Logger';
+import { logger } from '../../services/utils/logging';
 import useAppStore from '../../stores/appStore';
-import { clearErrors, clearNetwork } from '../../services/storage';
+import { clearErrors } from '../../services/storage/errorLogs';
+import { clearNetwork } from '../../services/storage/networkLogs';
+import { resetDatabase, getDB } from '../../services/storage/core';
+import { initializeStores } from '../../mocks/initializeStores';
+import { initializeMSW, setupMSWHandlers } from '../../mocks/browser';
+import useConfigStore from '../../services/config';
+
+// Keep MSW enabled for development, but control its usage through useMockData
+const ENABLE_MSW = true;
 
 export class InitializationManager {
     static instance = null;
@@ -21,157 +29,190 @@ export class InitializationManager {
     #logPerformance(label, startTime) {
         const endTime = performance.now();
         const duration = endTime - startTime;
-        Logger.log('Performance', `${label} took ${duration.toFixed(2)}ms`);
+        logger.info(`${label} took ${duration.toFixed(2)}ms`);
     }
 
-    async initialize() {
-        if (this.#isInitializing || this.#isInitialized) {
-            Logger.warn('InitManager', 'Initialization already in progress or completed');
+    async initialize(force = false) {
+        if ((this.#isInitializing || this.#isInitialized) && !force) {
+            logger.warn('Initialization already in progress or completed');
+            return;
+        }
+
+        // Reset initialization state if force is true
+        if (force) {
+            this.#isInitialized = false;
+            this.#isInitializing = false;
+            useAppStore.getState().reset();
+        }
+
+        // Don't proceed if already initializing
+        if (this.#isInitializing) {
+            logger.warn('Initialization already in progress');
             return;
         }
 
         this.#isInitializing = true;
+        useAppStore.getState().setInitialized(false);
         const startTime = performance.now();
 
         try {
-            Logger.info('InitManager', 'Starting application initialization');
+            const getStackTrace = () => {
+                const stack = new Error().stack;
+                logger.debug('Current stack trace:', stack);
+                return stack;
+            };
 
-            // Clear network and error logs
-            await this.#clearLogs();
-
-            // Initialize database
-            await this.#initializeDatabase();
-
-            // Initialize stores
-            await this.#initializeStores();
-
-            // Initialize MSW in development
-            if (process.env.NODE_ENV === 'development') {
-                await this.#initializeMSW();
+            logger.info('Starting initialization sequence', { stack: getStackTrace() });
+            
+            // Initialize database first
+            logger.info('Initializing database');
+            let db;
+            try {
+                db = await getDB();
+                logger.debug('Database initialized successfully', { stack: getStackTrace() });
+            } catch (dbError) {
+                logger.error('Database initialization failed', { error: dbError, stack: getStackTrace() });
+                throw dbError;
             }
-
-            this.#isInitialized = true;
-            this.#isInitializing = false;
-
-            // Update app store state
-            useAppStore.getState().setInitialized(true);
-
-            Logger.info('InitManager', 'Application initialization completed successfully');
-            this.#logPerformance('total-init', startTime);
-        } catch (error) {
-            this.#isInitializing = false;
-            Logger.error('InitManager', 'Initialization failed', error);
             
-            // Update app store error state
-            useAppStore.getState().setError(error);
-            
-            throw error;
-        }
-    }
-
-    async #clearLogs() {
-        const startTime = performance.now();
-        try {
-            Logger.info('InitManager', 'Clearing network and error logs');
-            await clearErrors();
-            await clearNetwork();
-            Logger.info('InitManager', 'Logs cleared successfully');
-        } catch (error) {
-            Logger.error('InitManager', 'Failed to clear logs:', error);
-            // Don't throw error, just log it and continue
-        } finally {
-            this.#logPerformance('clear-logs', startTime);
-        }
-    }
-
-    async #initializeDatabase() {
-        const startTime = performance.now();
-        try {
-            Logger.info('Database', 'Starting database initialization');
-            
-            // Check IndexedDB availability
-            const indexedDBAvailable = 'indexedDB' in window;
-            Logger.log('Database', `IndexedDB availability: ${indexedDBAvailable}`);
-            
-            if (!indexedDBAvailable) {
-                throw new Error('IndexedDB is not available in this browser');
+            // Check if stores have data
+            let hasCollections = false;
+            let hasNudges = false;
+            try {
+                const tx = db.transaction(['collections', 'nudges'], 'readonly');
+                const collectionsStore = tx.objectStore('collections');
+                const nudgesStore = tx.objectStore('nudges');
+                hasCollections = await collectionsStore.count() > 0;
+                hasNudges = await nudgesStore.count() > 0;
+                await tx.done;
+                logger.debug('Store check completed', { hasCollections, hasNudges, stack: getStackTrace() });
+            } catch (txError) {
+                logger.error('Store check failed', { error: txError, stack: getStackTrace() });
+                throw txError;
             }
-
-            // Initialize database connection
-            Logger.info('Database', 'Opening database connection...');
-            await this.#openDatabaseConnection();
             
-            Logger.info('Database', 'Database initialization completed successfully');
-        } catch (error) {
-            Logger.error('Database', 'Database initialization failed', error);
-            throw error;
-        } finally {
-            this.#logPerformance('database-init', startTime);
-        }
-    }
-
-    async #openDatabaseConnection() {
-        // Add your database connection logic here
-        await new Promise(resolve => setTimeout(resolve, 100)); // Simulated delay
-    }
-
-    async #initializeStores() {
-        const startTime = performance.now();
-        try {
-            Logger.info('Store', 'Starting store initialization');
+            // Get config after database is ready
+            let useMockData;
+            try {
+                useMockData = useConfigStore.getState().useMockData;
+                logger.debug('Config loaded', { useMockData, stack: getStackTrace() });
+            } catch (configError) {
+                logger.error('Config load failed', { error: configError, stack: getStackTrace() });
+                throw configError;
+            }
             
-            const stores = ['nudges', 'collections', 'media', 'network', 'errors', 'mockResponses'];
-            const storeResults = {};
-            
-            for (const store of stores) {
-                const storeStartTime = performance.now();
-                Logger.info('Store', `Initializing ${store} store...`);
-                
+            // Initialize MSW if enabled
+            if (ENABLE_MSW) {
+                logger.info('Initializing MSW worker');
                 try {
-                    // Add your store initialization logic here
-                    await this.#initializeStore(store);
-                    Logger.info('Store', `${store} store initialized successfully`);
-                } catch (error) {
-                    Logger.error('Store', `Failed to initialize ${store} store`, error);
-                    throw error;
-                } finally {
-                    this.#logPerformance(`store-${store}`, storeStartTime);
+                    const initialized = await initializeMSW();
+                    if (!initialized) {
+                        logger.error('Failed to initialize MSW worker');
+                        throw new Error('Failed to initialize MSW worker');
+                    }
+                    logger.debug('MSW worker initialized', { stack: getStackTrace() });
+
+                    // Set up MSW handlers if using mock data
+                    if (useMockData) {
+                        logger.info('Setting up MSW handlers');
+                        setupMSWHandlers();
+                        logger.debug('MSW handlers set up', { stack: getStackTrace() });
+                    }
+                } catch (mswError) {
+                    logger.error('MSW initialization failed', { error: mswError, stack: getStackTrace() });
+                    throw mswError;
                 }
             }
             
-            Logger.info('Store', 'Store initialization completed successfully');
-            return storeResults;
+            // Only initialize with mock data if using mock data and stores are empty
+            if (useMockData && (!hasCollections || !hasNudges)) {
+                logger.info('Stores are empty and mock data is enabled, initializing with mock data');
+                try {
+                    await resetDatabase();
+                    logger.debug('Database reset successfully', { stack: getStackTrace() });
+                } catch (resetError) {
+                    logger.error('Database reset failed', { error: resetError, stack: getStackTrace() });
+                    throw resetError;
+                }
+                try {
+                    await initializeStores(true);
+                    logger.debug('Stores initialized with mock data', { stack: getStackTrace() });
+                } catch (storesError) {
+                    logger.error('Store initialization with mock data failed', { error: storesError, stack: getStackTrace() });
+                    throw storesError;
+                }
+                
+                // Set up MSW handlers after data is initialized
+                if (ENABLE_MSW) {
+                    logger.info('Setting up MSW handlers');
+                    try {
+                        setupMSWHandlers();
+                        logger.debug('MSW handlers set up', { stack: getStackTrace() });
+                    } catch (handlersError) {
+                        logger.error('MSW handlers setup failed', { error: handlersError, stack: getStackTrace() });
+                        throw handlersError;
+                    }
+                }
+            } else if (!hasCollections || !hasNudges) {
+                logger.info('Stores are empty but using real data, skipping mock data initialization');
+            } else {
+                logger.info('Stores already have data');
+                
+                // Set up MSW handlers if mock data is enabled
+                if (ENABLE_MSW && useMockData) {
+                    logger.info('Setting up MSW handlers');
+                    try {
+                        setupMSWHandlers();
+                        logger.debug('MSW handlers set up', { stack: getStackTrace() });
+                    } catch (handlersError) {
+                        logger.error('MSW handlers setup failed', { error: handlersError, stack: getStackTrace() });
+                        throw handlersError;
+                    }
+                }
+            }
+
+            // Load store data and wait for it to complete
+            logger.info('Loading store data');
+            try {
+                const storeData = await useAppStore.getState().loadStoreData(true);
+                logger.debug('Store data loaded', { storeData, stack: getStackTrace() });
+            } catch (storeDataError) {
+                logger.error('Store data load failed', { error: storeDataError, stack: getStackTrace() });
+                throw storeDataError;
+            }
+            
+            // Clear any previous logs
+            logger.info('Clearing logs');
+            try {
+                await clearErrors();
+                logger.debug('Error logs cleared', { stack: getStackTrace() });
+            } catch (clearErrorsError) {
+                logger.error('Error logs clear failed', { error: clearErrorsError, stack: getStackTrace() });
+                throw clearErrorsError;
+            }
+            try {
+                await clearNetwork();
+                logger.debug('Network logs cleared', { stack: getStackTrace() });
+            } catch (clearNetworkError) {
+                logger.error('Network logs clear failed', { error: clearNetworkError, stack: getStackTrace() });
+                throw clearNetworkError;
+            }
+
+            this.#isInitialized = true;
+            useAppStore.getState().setInitialized(true);
+            this.#logPerformance('Full initialization', startTime);
+            logger.info('Initialization completed successfully');
+            return this.#isInitialized;
         } catch (error) {
-            Logger.error('Store', 'Store initialization failed', error);
+            logger.error('Initialization failed', { error, stack: new Error().stack });
+            useAppStore.getState().setError(error);
             throw error;
         } finally {
-            this.#logPerformance('store-init', startTime);
+            this.#isInitializing = false;
         }
     }
 
-    async #initializeStore(store) {
-        // Add your store initialization logic here
-        await new Promise(resolve => setTimeout(resolve, 50)); // Simulated delay
-    }
-
-    async #initializeMSW() {
-        const startTime = performance.now();
-        try {
-            Logger.info('MSW', 'Starting MSW initialization');
-            
-            const { worker } = await import('../../mocks/browser');
-            await worker.start({
-                onUnhandledRequest: 'bypass',
-                quiet: true
-            });
-
-            Logger.info('MSW', 'MSW initialized successfully');
-            this.#logPerformance('msw-init', startTime);
-            return true;
-        } catch (error) {
-            Logger.error('MSW', 'MSW initialization failed', error);
-            this.#logPerformance('msw-init', startTime);
-            throw error;
-        }
+    setFallbackMode(enabled) {
+        useAppStore.getState().setError(enabled ? new Error('Fallback mode enabled') : null);
     }
 }

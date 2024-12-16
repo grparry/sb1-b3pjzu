@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Folder, Image, FileCode, MoreVertical, Upload, AlertCircle } from 'lucide-react';
+import { Plus, Folder, Image, FileCode, Pencil, Trash2, Upload, AlertCircle } from 'lucide-react';
 import Breadcrumb from '../components/Breadcrumb';
-import { fetchFolders, createFolder, deleteFolder } from '../services/api';
+import { fetchFolders, createFolder, deleteFolder, updateFolder } from '../services/api';
 import useConfigStore from '../services/config';
-import { initializeStores } from '../mocks/initializeStores';
+import { InitializationManager } from '../utils/initialization/InitializationManager';
 import { resetDatabase } from '../services/storage';
 
 function MediaFolders() {
@@ -14,6 +14,9 @@ function MediaFolders() {
   const [folders, setFolders] = useState([]);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [showEditFolderModal, setShowEditFolderModal] = useState(null);
+  const [editFolderName, setEditFolderName] = useState('');
+  const [folderToDelete, setFolderToDelete] = useState(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -21,9 +24,9 @@ function MediaFolders() {
         setIsLoading(true);
         setError(null);
         
-        // Initialize mock data if needed
-        if (useMockData) {
-          await initializeStores(false);
+        // Initialize mock data if needed and not already initialized
+        if (useMockData && !InitializationManager.getInstance().isInitialized()) {
+          await InitializationManager.getInstance().initialize();
         }
         
         // Load the folders
@@ -68,14 +71,27 @@ function MediaFolders() {
     }
   };
 
-  const handleDeleteFolder = async (folderId) => {
-    if (!window.confirm('Are you sure you want to delete this folder?')) return;
-
+  const handleDeleteFolder = async (folder) => {
     try {
-      await deleteFolder(folderId);
-      setFolders(folders.filter(f => f.id !== folderId));
+      await deleteFolder(folder.id);
+      setFolders(folders.filter(f => f.id !== folder.id));
+      setFolderToDelete(null);
     } catch (err) {
       console.error('Error deleting folder:', err);
+      setError(err.message);
+    }
+  };
+
+  const handleUpdateFolder = async () => {
+    if (!editFolderName.trim()) return;
+
+    try {
+      const updatedFolder = await updateFolder(showEditFolderModal.id, { name: editFolderName.trim() });
+      setFolders(folders.map(f => f.id === updatedFolder.id ? updatedFolder : f));
+      setEditFolderName('');
+      setShowEditFolderModal(null);
+    } catch (err) {
+      console.error('Error updating folder:', err);
       setError(err.message);
     }
   };
@@ -136,7 +152,7 @@ function MediaFolders() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {folders.map((folder) => (
+        {folders.map((folder, index) => (
           <div
             key={folder.id}
             className="bg-white rounded-lg shadow hover:shadow-md transition-shadow"
@@ -155,19 +171,32 @@ function MediaFolders() {
                   </div>
                 </div>
                 <div className="relative">
-                  <button 
-                    className="p-2 hover:bg-gray-100 rounded-full"
-                    onClick={() => handleDeleteFolder(folder.id)}
-                  >
-                    <MoreVertical size={16} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button 
+                      className="p-2 hover:bg-gray-100 rounded-full text-gray-500 hover:text-gray-700"
+                      onClick={() => {
+                        setShowEditFolderModal(folder);
+                        setEditFolderName(folder.name);
+                      }}
+                      title="Edit folder"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                    <button 
+                      className="p-2 hover:bg-gray-100 rounded-full text-gray-500 hover:text-gray-700"
+                      onClick={() => setFolderToDelete(folder)}
+                      title="Delete folder"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </div>
               </div>
 
               <div className="mt-4 pt-4 border-t">
                 <div className="flex items-center justify-between text-sm text-gray-500">
                   <span>Last modified</span>
-                  <span>{new Date(folder.lastModified).toLocaleDateString()}</span>
+                  <span>{new Date(folder.updatedAt).toLocaleDateString()}</span>
                 </div>
               </div>
 
@@ -185,7 +214,7 @@ function MediaFolders() {
       </div>
 
       {showNewFolderModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+        <div key="new-folder-modal" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <h2 className="text-lg font-medium mb-4">Create New Folder</h2>
             <input
@@ -210,6 +239,63 @@ function MediaFolders() {
                 onClick={handleCreateFolder}
               >
                 Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditFolderModal && (
+        <div key="edit-folder-modal" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h2 className="text-lg font-medium mb-4">Edit Folder</h2>
+            <input
+              type="text"
+              placeholder="Folder name"
+              className="w-full px-4 py-2 border rounded mb-4"
+              value={editFolderName}
+              onChange={(e) => setEditFolderName(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded"
+                onClick={() => {
+                  setShowEditFolderModal(null);
+                  setEditFolderName('');
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 bg-sky-500 text-white rounded hover:bg-sky-600"
+                onClick={handleUpdateFolder}
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {folderToDelete && (
+        <div key="delete-folder-modal" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h2 className="text-lg font-medium mb-4">Delete Folder</h2>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete the folder "{folderToDelete.name}"? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded"
+                onClick={() => setFolderToDelete(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+                onClick={() => handleDeleteFolder(folderToDelete)}
+              >
+                Delete
               </button>
             </div>
           </div>

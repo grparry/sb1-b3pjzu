@@ -1,40 +1,40 @@
 import React, { useState, useCallback } from 'react';
 import { ChevronDown, ChevronRight, ArrowLeft, Copy, Save, Circle } from 'lucide-react';
+import isEqual from 'lodash/isEqual';
 
 function TreeViewCompareNode({
   label,
   value,
   isExpanded,
-  depth,
+  depth = 0,
   onToggle,
   compareValue,
   path,
   onValueTransfer,
   storeName,
   readOnly = false,
-  expandedPaths
+  expandedPaths,
+  pendingUpdates = new Map()
 }) {
-  const pathString = path.join('.');
-  const isObject = value !== null && typeof value === 'object';
+  const isObject = value && typeof value === 'object' && !Array.isArray(value);
   const hasChildren = isObject && Object.keys(value).length > 0;
-  const canTransfer = compareValue !== undefined && !readOnly;
-  const showTransferButton = canTransfer && (!isObject || !isExpanded);
+  const pathString = path.join('.');
   const indentStyle = { paddingLeft: `${depth * 20}px` };
 
-  const renderValue = () => {
-    if (isObject) {
-      if (!isExpanded) {
-        return '{...}';
-      }
-      return null;
+  const handleTransfer = useCallback((e) => {
+    e.stopPropagation();
+    if (onValueTransfer) {
+      onValueTransfer(path, compareValue);
     }
-    return String(value);
-  };
+  }, [onValueTransfer, path, compareValue]);
 
-  const handleTransfer = (e) => {
-    e.stopPropagation(); // Prevent event bubbling
-    console.log('Transferring value:', { path, compareValue });
-    onValueTransfer(path, compareValue);
+  const isValueDifferent = compareValue !== undefined && !isEqual(value, compareValue);
+  const hasPendingUpdate = pendingUpdates.has(pathString);
+
+  const renderValue = () => {
+    if (value === null || value === undefined) return 'null';
+    if (typeof value === 'object') return '{...}';
+    return String(value);
   };
 
   const renderChildren = () => {
@@ -58,6 +58,7 @@ function TreeViewCompareNode({
           storeName={storeName}
           readOnly={readOnly}
           expandedPaths={expandedPaths}
+          pendingUpdates={pendingUpdates}
         />
       );
     });
@@ -67,7 +68,7 @@ function TreeViewCompareNode({
     <div className="tree-node-compare">
       <div
         className={`flex items-center py-1 hover:bg-gray-100 ${
-          showTransferButton ? 'bg-blue-50' : ''
+          hasPendingUpdate ? 'bg-yellow-50' : isValueDifferent ? 'bg-blue-50' : ''
         }`}
         style={indentStyle}
       >
@@ -86,15 +87,17 @@ function TreeViewCompareNode({
         {!hasChildren && <span className="w-6" />}
         
         <span className="font-medium mr-2">{label}:</span>
-        <span className="flex-1">{renderValue()}</span>
+        <span className={`flex-1 ${isValueDifferent && !hasPendingUpdate ? 'text-blue-600' : ''}`}>
+          {hasPendingUpdate ? pendingUpdates.get(pathString) : renderValue()}
+        </span>
 
-        {showTransferButton && (
+        {isValueDifferent && !readOnly && !hasPendingUpdate && (
           <button
             onClick={handleTransfer}
-            className="ml-1 p-1 hover:bg-blue-100 rounded"
-            title="Transfer value from mock response"
+            className="p-1 hover:bg-blue-100 rounded transition-colors"
+            title="Transfer value from right to left"
           >
-            <ArrowLeft className="w-4 h-4 text-blue-600" />
+            <ArrowLeft className="w-4 h-4 text-blue-500" />
           </button>
         )}
       </div>

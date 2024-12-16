@@ -37,75 +37,103 @@ function NudgeForm() {
     );
   }
 
-  return (
-    <>
-      <div className="mb-8">
-        <Breadcrumb
-          items={[
-            { label: 'Engagement Studios', path: '/' },
-            { label: 'Nudges', path: '/nudges' },
-            { label: id ? formData.title : 'New Nudge' }
-          ]}
-        />
-      </div>
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await handleSubmit(e);
+    } catch (error) {
+      console.error('Error submitting form:', error);
+    }
+  };
 
-      <div className="max-w-5xl mx-auto bg-white rounded-lg shadow">
-        <div className="p-6 border-b">
-          <h1 className="text-2xl font-semibold text-gray-900">
-            {id ? formData.title : 'New Nudge'}
-          </h1>
-          <div className="text-sm text-gray-500 mt-1">{formData.version}</div>
+  return (
+    <div className="min-h-screen bg-gray-50 pb-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+        <div className="mb-8">
+          <Breadcrumb
+            items={[
+              { label: 'Engagement Studios', path: '/' },
+              { label: 'Nudges', path: '/nudges' },
+              { label: id ? (formData?.title || 'Loading...') : 'New Nudge' }
+            ]}
+          />
         </div>
 
-        <Tab.Group>
-          <Tab.List className="flex border-b">
-            {['OVERVIEW', 'TARGET', 'LAYOUT', 'COMMENTS'].map((tab) => (
-              <Tab
-                key={tab}
-                className={({ selected }) =>
-                  `px-6 py-3 text-sm font-medium outline-none ${
-                    selected
-                      ? 'text-sky-500 border-b-2 border-sky-500'
-                      : 'text-gray-500 hover:text-gray-700'
-                  }`
-                }
-              >
-                {tab}
-              </Tab>
-            ))}
-          </Tab.List>
+        <div className="max-w-5xl mx-auto bg-white rounded-lg shadow">
+          <form onSubmit={onSubmit}>
+            <div className="p-6 border-b flex justify-between items-center">
+              <div>
+                <h1 className="text-2xl font-semibold text-gray-900">
+                  {id ? formData.title : 'New Nudge'}
+                </h1>
+                <div className="text-sm text-gray-500 mt-1">{formData.version}</div>
+              </div>
+              <div className="flex gap-4">
+                <button
+                  type="button"
+                  onClick={() => navigate('/nudges')}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm font-medium text-white bg-sky-500 rounded-md hover:bg-sky-600"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
 
-          <Tab.Panels className="p-6">
-            <Tab.Panel>
-              <TabOverview
-                formData={formData}
-                setFormData={setFormData}
-                onCancel={() => navigate('/nudges')}
-                onSubmit={handleSubmit}
-              />
-            </Tab.Panel>
-            <Tab.Panel>
-              <TabTarget
-                formData={formData}
-                setFormData={setFormData}
-              />
-            </Tab.Panel>
-            <Tab.Panel>
-              <TabLayout
-                formData={formData}
-                setFormData={setFormData}
-              />
-            </Tab.Panel>
-            <Tab.Panel>
-              <TabComments
-                formData={formData}
-                setFormData={setFormData}
-              />
-            </Tab.Panel>
-          </Tab.Panels>
-        </Tab.Group>
+            <Tab.Group>
+              <Tab.List className="flex border-b">
+                {['OVERVIEW', 'TARGET', 'LAYOUT', 'COMMENTS'].map((tab) => (
+                  <Tab
+                    key={tab}
+                    className={({ selected }) =>
+                      `px-6 py-3 text-sm font-medium outline-none ${
+                        selected
+                          ? 'text-sky-500 border-b-2 border-sky-500'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`
+                    }
+                  >
+                    {tab}
+                  </Tab>
+                ))}
+              </Tab.List>
+
+              <Tab.Panels>
+                <Tab.Panel className="p-6">
+                  <TabOverview
+                    formData={formData}
+                    setFormData={setFormData}
+                  />
+                </Tab.Panel>
+                <Tab.Panel className="p-6">
+                  <TabTarget
+                    formData={formData}
+                    setFormData={setFormData}
+                  />
+                </Tab.Panel>
+                <Tab.Panel className="p-6">
+                  <TabLayout
+                    formData={formData}
+                    setFormData={setFormData}
+                  />
+                </Tab.Panel>
+                <Tab.Panel className="p-6">
+                  <TabComments
+                    formData={formData}
+                    setFormData={setFormData}
+                  />
+                </Tab.Panel>
+              </Tab.Panels>
+            </Tab.Group>
+          </form>
+        </div>
       </div>
-    </>
+    </div>
   );
 }
 

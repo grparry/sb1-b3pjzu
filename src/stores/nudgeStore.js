@@ -17,7 +17,7 @@ const useNudgeStore = create((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const response = await apiFetchNudges();
-      set({ nudges: response.data || [], isLoading: false });
+      set({ nudges: response || [], isLoading: false });
     } catch (error) {
       set({ error: error.message, isLoading: false });
     }
@@ -27,7 +27,7 @@ const useNudgeStore = create((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const response = await apiFetchNudge(id);
-      const nudge = response.data;
+      const nudge = response;
       set({ currentNudge: nudge, isLoading: false });
       return nudge;
     } catch (error) {
@@ -40,7 +40,7 @@ const useNudgeStore = create((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const response = await apiCreateNudge(data);
-      const newNudge = response.data;
+      const newNudge = response;
       set(state => ({
         nudges: [...state.nudges, newNudge],
         currentNudge: newNudge,
@@ -57,7 +57,7 @@ const useNudgeStore = create((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const response = await apiUpdateNudge(id, data);
-      const updatedNudge = response.data;
+      const updatedNudge = response;
       set(state => ({
         nudges: state.nudges.map(nudge => 
           nudge.id === id ? updatedNudge : nudge

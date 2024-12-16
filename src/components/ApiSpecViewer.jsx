@@ -1,6 +1,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { X, ChevronRight, ChevronDown, Play, Search, Plus, Trash2 } from 'lucide-react';
 import { makeApiCall } from '../services/api';
+import { logger } from '../services/utils/logging';
+import useConfigStore from '../services/config'; // Fix import statement
 
 function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
   if (!apiSpec) return null;
@@ -72,7 +74,7 @@ function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
     if (!body) return '0';
     const bodyStr = typeof body === 'object' ? JSON.stringify(body) : String(body);
     const length = new TextEncoder().encode(bodyStr).length.toString();
-    console.log('Calculated Content-Length:', length, 'for body:', bodyStr);
+    logger.debug('Calculated Content-Length', { length, body: bodyStr });
     return length;
   }, []);
 
@@ -81,11 +83,11 @@ function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
     try {
       const urlObj = new URL(url);
       const host = urlObj.host;
-      console.log('Calculated Host:', host, 'for URL:', url);
+      logger.debug('Calculated Host', { host, url });
       return host;
     } catch {
       const defaultHost = window.location.host;
-      console.log('Using default Host:', defaultHost);
+      logger.debug('Using default Host', { host: defaultHost });
       return defaultHost;
     }
   }, []);
@@ -111,7 +113,7 @@ function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
         .join('&');
       
       const url = `${selectedEndpoint.path}${queryString ? `?${queryString}` : ''}`;
-      console.log('API Request Details:', {
+      logger.debug('API Request Details:', {
         url,
         method: selectedEndpoint.method.toUpperCase(),
         rawBody: testRequest.body,
@@ -119,13 +121,16 @@ function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
         bodyLength: testRequest.body?.length
       });
 
+      const { apiBaseUrl } = useConfigStore.getState();
+      const fullUrl = url.startsWith('http') ? url : `${apiBaseUrl}${url}`;
+
       // Special handling for token endpoint
       const isTokenEndpoint = url === '/api/enterprise/token';
       
       if (isTokenEndpoint) {
         // Use the same approach as TokenTest component
         const tokenHeaders = getDefaultHeaders();
-        const response = await fetch(url, {
+        const response = await fetch(fullUrl, {
           method: 'POST',
           headers: tokenHeaders,
           body: testRequest.body
@@ -169,7 +174,7 @@ function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
         options.body = testRequest.body;
       }
 
-      console.log('Final request configuration:', {
+      logger.debug('Final request configuration:', {
         url,
         method: options.method,
         headers: options.headers,
@@ -183,19 +188,19 @@ function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
       let response, responseData;
 
       if (useMockApi) {
-        response = await fetch(url, options);
+        response = await fetch(fullUrl, options);
         responseData = await response.json();
 
         // Store successful responses in IndexedDB
         if (response.ok) {
           const storeName = selectedEndpoint.path.split('/')[2] || 'mockResponses';
           await putInStore(storeName, responseData);
-          console.log(`Stored mock response in ${storeName} store:`, responseData);
+          logger.debug(`Stored mock response in ${storeName} store:`, responseData);
         }
       } else {
         // In real API mode, use makeApiCall which handles authentication
         // Pass the full URL and options directly to makeApiCall
-        responseData = await makeApiCall(url, options);
+        responseData = await makeApiCall(fullUrl, options);
         response = { ok: true }; // makeApiCall throws on error
       }
 
@@ -205,7 +210,7 @@ function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
         response: JSON.stringify(responseData, null, 2)
       }));
     } catch (error) {
-      console.error('Test request error:', error);
+      logger.error('Test request error:', error);
       setTestRequest(prev => ({
         ...prev,
         isLoading: false,
@@ -216,9 +221,9 @@ function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
 
   // Helper function to generate mock value based on type and format
   const generateMockValue = (schema, path = '') => {
-    console.log('generateMockValue called with schema:', schema, 'and path:', path);
+    logger.debug('generateMockValue called with schema:', schema, 'and path:', path);
     if (!schema) {
-      console.log('Schema is null or undefined');
+      logger.debug('Schema is null or undefined');
       return null;
     }
 
@@ -232,28 +237,28 @@ function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
 
     // If schema has a reference, resolve it
     if (schema.$ref) {
-      console.log('Schema has a reference:', schema.$ref);
+      logger.debug('Schema has a reference:', schema.$ref);
       const refPath = schema.$ref.split('/').pop(); // Get the last part of the reference
       const resolvedSchema = apiSpec?.content?.components?.schemas?.[refPath] || 
                              apiSpec?.content?.definitions?.[refPath];
       if (resolvedSchema) {
-        console.log('Resolved schema:', resolvedSchema);
+        logger.debug('Resolved schema:', resolvedSchema);
         return generateMockValue(resolvedSchema, path);
       } else {
-        console.log('Could not resolve schema reference:', schema.$ref);
+        logger.debug('Could not resolve schema reference:', schema.$ref);
         return null;
       }
     }
 
     // Handle if schema is an array directly
     if (Array.isArray(schema)) {
-      console.log('Schema is an array');
+      logger.debug('Schema is an array');
       return schema.map(item => generateMockValue(item, path));
     }
 
     switch (schema.type) {
       case 'string':
-        console.log('Generating mock string value');
+        logger.debug('Generating mock string value');
         if (schema.format === 'date-time') return new Date().toISOString();
         if (schema.format === 'date') return new Date().toISOString().split('T')[0];
         if (schema.format === 'email') return 'user@example.com';
@@ -268,7 +273,7 @@ function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
       
       case 'number':
       case 'integer':
-        console.log('Generating mock number value');
+        logger.debug('Generating mock number value');
         if (schema.format === 'int64') return 1000;
         if (path.toLowerCase().includes('age')) return 25;
         if (path.toLowerCase().includes('year')) return new Date().getFullYear();
@@ -276,11 +281,11 @@ function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
         return 0;
       
       case 'boolean':
-        console.log('Generating mock boolean value');
+        logger.debug('Generating mock boolean value');
         return true;
       
       case 'array':
-        console.log('Generating mock array value');
+        logger.debug('Generating mock array value');
         if (schema.items) {
           // Generate 2 items for better visualization
           return [
@@ -291,14 +296,14 @@ function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
         return [];
       
       case 'object':
-        console.log('Generating mock object value');
+        logger.debug('Generating mock object value');
         if (schema.properties) {
           const mockObj = {};
           Object.entries(schema.properties).forEach(([key, prop]) => {
             try {
               mockObj[key] = generateMockValue(prop, `${path}.${key}`);
             } catch (error) {
-              console.error(`Error generating mock value for property ${key}:`, error);
+              logger.error(`Error generating mock value for property ${key}:`, error);
               mockObj[key] = null;
             }
           });
@@ -307,7 +312,7 @@ function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
         return {};
       
       default:
-        console.log('Generating mock value for unknown type:', schema.type);
+        logger.debug('Generating mock value for unknown type:', schema.type);
         // Handle oneOf, anyOf, allOf
         if (schema.oneOf) return generateMockValue(schema.oneOf[0], path);
         if (schema.anyOf) return generateMockValue(schema.anyOf[0], path);
@@ -323,55 +328,55 @@ function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
 
   // Function to generate mock request body based on endpoint schema
   const generateMockRequestBody = (endpoint) => {
-    console.log('generateMockRequestBody called with endpoint:', endpoint);
-    console.log('Current apiSpec:', apiSpec);
+    logger.debug('generateMockRequestBody called with endpoint:', endpoint);
+    logger.debug('Current apiSpec:', apiSpec);
 
     if (!endpoint) {
-      console.log('No endpoint provided');
+      logger.debug('No endpoint provided');
       return '';
     }
 
     try {
       // Get the path object from the OpenAPI spec
       const pathObj = apiSpec?.content?.paths?.[endpoint.path];
-      console.log('Found pathObj:', pathObj);
+      logger.debug('Found pathObj:', pathObj);
       
       if (!pathObj) {
-        console.log('No path object found for:', endpoint.path);
+        logger.debug('No path object found for:', endpoint.path);
         return '';
       }
 
       // Get the operation object
       const operation = pathObj[endpoint.method.toLowerCase()];
-      console.log('Found operation:', operation);
+      logger.debug('Found operation:', operation);
       
       if (!operation) {
-        console.log('No operation found for method:', endpoint.method);
+        logger.debug('No operation found for method:', endpoint.method);
         return '';
       }
 
       // First try modern OpenAPI requestBody
       const requestBody = operation.requestBody;
-      console.log('Found requestBody:', requestBody);
+      logger.debug('Found requestBody:', requestBody);
       
       if (requestBody?.content?.['application/json']?.schema) {
         const schema = requestBody.content['application/json'].schema;
-        console.log('Found modern schema:', schema);
+        logger.debug('Found modern schema:', schema);
         const mockData = generateMockValue(schema);
         return mockData ? JSON.stringify(mockData, null, 2) : '';
       }
 
       // If no requestBody, try parameters (OpenAPI 2.0 / Swagger)
-      console.log('Checking for body parameter in parameters');
+      logger.debug('Checking for body parameter in parameters');
       const bodyParam = operation.parameters?.find(p => p.in === 'body');
       if (bodyParam?.schema) {
-        console.log('Found body parameter schema:', bodyParam.schema);
+        logger.debug('Found body parameter schema:', bodyParam.schema);
         const mockData = generateMockValue(bodyParam.schema);
         return mockData ? JSON.stringify(mockData, null, 2) : '';
       }
 
       // If still no schema found, try to construct from non-body parameters
-      console.log('Constructing mock from parameters');
+      logger.debug('Constructing mock from parameters');
       const mockObj = {};
       operation.parameters?.forEach(param => {
         if (param.in === 'query' || param.in === 'formData') {
@@ -386,7 +391,7 @@ function ApiSpecViewer({ isOpen, onClose, apiSpec }) {
       return Object.keys(mockObj).length > 0 ? JSON.stringify(mockObj, null, 2) : '';
 
     } catch (error) {
-      console.error('Error generating mock request body:', error);
+      logger.error('Error generating mock request body:', error);
       return '';
     }
   };

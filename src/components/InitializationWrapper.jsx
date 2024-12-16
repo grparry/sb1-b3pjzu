@@ -1,24 +1,43 @@
-import React, { useEffect } from 'react';
+import React from 'react';
+import { useState, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
-import useAppStore from '../stores/appStore';
 import { InitializationManager } from '../utils/initialization/InitializationManager';
-import { Logger } from '../utils/logging/Logger';
+import { logger } from '../services/utils/logging';
+import useAppStore from '../stores/appStore';
 
-function InitializationWrapper({ children }) {
-  const { isInitialized, isInitializing, error } = useAppStore();
+const InitializationWrapper = ({ children }) => {
+  const mountedRef = useRef(true);
+  const initializingRef = useRef(false);
+  const { isInitialized, error } = useAppStore();
 
   useEffect(() => {
     const initManager = InitializationManager.getInstance();
-    
-    // Only initialize if not already initialized or initializing
-    if (!isInitialized && !isInitializing && !initManager.isInitialized()) {
-      InitializationManager.getInstance()
-        .initialize()
-        .catch(error => {
-          Logger.error('InitWrapper', 'Failed to initialize application', error);
-        });
-    }
-  }, [isInitialized, isInitializing]);
+
+    const initialize = async () => {
+      // Prevent multiple initialization attempts
+      if (isInitialized || initializingRef.current) {
+        return;
+      }
+
+      initializingRef.current = true;
+      logger.info('Starting initialization');
+      
+      try {
+        await initManager.initialize();
+        logger.info('Initialization complete');
+      } catch (error) {
+        logger.error('Failed to initialize application', error);
+      } finally {
+        initializingRef.current = false;
+      }
+    };
+
+    initialize();
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [isInitialized]);
 
   if (error) {
     return (
@@ -31,21 +50,19 @@ function InitializationWrapper({ children }) {
           <pre className="bg-gray-50 p-4 rounded text-sm overflow-auto">
             {error.message || String(error)}
           </pre>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+          >
+            Refresh Page
+          </button>
         </div>
       </div>
     );
   }
 
-  if (!isInitialized || isInitializing) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-500"></div>
-      </div>
-    );
-  }
-
   return children;
-}
+};
 
 InitializationWrapper.propTypes = {
   children: PropTypes.node.isRequired

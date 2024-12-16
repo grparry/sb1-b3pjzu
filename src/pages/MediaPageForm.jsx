@@ -2,10 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Upload } from 'lucide-react';
 import Breadcrumb from '../components/Breadcrumb';
+import { fetchMediaItem, createMedia, updateMedia } from '../services/api';
+import { logger } from '../services/utils/logging'; // Assuming logger is imported from a separate file
 
 function MediaPageForm() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     type: 'landing',
@@ -15,24 +19,49 @@ function MediaPageForm() {
   });
 
   useEffect(() => {
-    if (id) {
-      // Simulate fetching page data
-      const mockData = {
-        name: 'Product Landing Page',
-        type: 'landing',
-        content: '<div>Landing page content</div>',
-        status: 'published',
-        url: '/landing/product'
-      };
-      setFormData(mockData);
-    }
+    const loadData = async () => {
+      if (id) {
+        try {
+          setIsLoading(true);
+          setError(null);
+          const data = await fetchMediaItem(id);
+          setFormData(data);
+        } catch (err) {
+          logger.error('Error loading media', err);
+          setError(err.message);
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    loadData();
   }, [id]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log('Form submitted:', formData);
-    navigate('/media');
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      if (id) {
+        await updateMedia(id, formData);
+      } else {
+        await createMedia(formData);
+      }
+
+      navigate('/media');
+    } catch (err) {
+      logger.error('Error saving media', err);
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
+
+  if (isLoading) {
+    return <div className="p-4">Loading...</div>;
+  }
 
   return (
     <>
@@ -52,6 +81,12 @@ function MediaPageForm() {
             {id ? 'Edit Page' : 'Create New Page'}
           </h1>
         </div>
+
+        {error && (
+          <div className="p-4 mb-4 text-red-700 bg-red-100 rounded">
+            {error}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           <div>
@@ -105,8 +140,8 @@ function MediaPageForm() {
               Content *
             </label>
             <textarea
-              className="w-full border-gray-300 rounded-md shadow-sm font-mono"
-              rows={12}
+              className="w-full border-gray-300 rounded-md shadow-sm"
+              rows="10"
               value={formData.content}
               onChange={(e) => setFormData({ ...formData, content: e.target.value })}
               required
@@ -127,19 +162,20 @@ function MediaPageForm() {
             </select>
           </div>
 
-          <div className="flex justify-end gap-4 pt-6 border-t">
+          <div className="flex justify-end gap-4">
             <button
               type="button"
+              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
               onClick={() => navigate('/media')}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 text-sm font-medium text-white bg-sky-500 rounded-md hover:bg-sky-600"
+              className="px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700"
+              disabled={isLoading}
             >
-              {id ? 'Update Page' : 'Create Page'}
+              {isLoading ? 'Saving...' : id ? 'Update Page' : 'Create Page'}
             </button>
           </div>
         </form>

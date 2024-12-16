@@ -101,19 +101,25 @@ function BasicSegmentation({ formData, setFormData }) {
         />
       </div>
 
-      <div>
-        <label className="flex items-center gap-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center">
           <input
             type="checkbox"
+            id="registeredOnly"
+            className="h-4 w-4 text-sky-600 focus:ring-sky-500 border-gray-300 rounded"
             checked={formData.registration.registeredOnly}
             onChange={(e) => setFormData({
               ...formData,
               registration: { ...formData.registration, registeredOnly: e.target.checked }
             })}
-            className="rounded border-gray-300"
           />
-          <span className="text-sm text-gray-700">Registered users only</span>
-        </label>
+          <label htmlFor="registeredOnly" className="ml-2 block text-sm text-gray-700">
+            Registered Users Only
+          </label>
+        </div>
+        <div className="text-sm text-gray-500">
+          Only show this nudge to registered users
+        </div>
       </div>
     </div>
   );

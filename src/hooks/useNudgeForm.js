@@ -3,10 +3,11 @@ import { logError } from '../services/storage';
 import useNudgeStore from '../stores/nudgeStore';
 
 const initialFormData = {
+  id: undefined, // Add id field
   title: '',
   collection: '',
   businessValue: '',
-  priority: '',
+  priority: 'NORMAL',
   description: '',
   version: '1 - Draft',
   notificationTitle: '',
@@ -18,7 +19,20 @@ const initialFormData = {
   lastNotification: { days: '' },
   registration: { registeredOnly: false },
   selectedTags: [],
-  comment: ''
+  comment: '',
+  channel: 'APP_INSTANT',
+  status: 'ACTIVE',
+  type: 'NOTIFICATION',
+  shortUrl: '',
+  contentTemplate: {
+    nudgeCardName: '',
+    title: '',
+    welcomeMessage: '',
+    body: '',
+    image: '',
+    callToActionLabel: '',
+    type: 'INFO'
+  }
 };
 
 function useNudgeForm(id, onSuccess) {
@@ -45,7 +59,8 @@ function useNudgeForm(id, onSuccess) {
         if (mounted) {
           setFormData({
             ...initialFormData,
-            ...data
+            ...data,
+            id // Ensure ID is set
           });
         }
       } catch (err) {
@@ -71,10 +86,15 @@ function useNudgeForm(id, onSuccess) {
     try {
       setError(null);
       
+      const dataToSubmit = {
+        ...formData,
+        id: id || undefined // Ensure ID is set for updates
+      };
+      
       if (id) {
-        await updateNudge(id, formData);
+        await updateNudge(id, dataToSubmit);
       } else {
-        await createNudge(formData);
+        await createNudge(dataToSubmit);
       }
       
       onSuccess?.();

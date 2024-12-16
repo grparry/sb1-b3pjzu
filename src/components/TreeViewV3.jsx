@@ -189,7 +189,7 @@ function TreeViewV3({
   compareData,
   isExpanded,
   onToggle,
-  expandedPaths,
+  expandedPaths = new Set(),
   onValueTransfer,
   onEdit,
   onDelete,
@@ -200,17 +200,35 @@ function TreeViewV3({
   const [editingPath, setEditingPath] = useState(null);
   const [localData, setLocalData] = useState(data);
   const [showRootAddDialog, setShowRootAddDialog] = useState(false);
+  const [localExpandedPaths, setLocalExpandedPaths] = useState(new Set(expandedPaths));
 
   useEffect(() => {
     setLocalData(data);
   }, [data]);
 
-  const handleRootAdd = (key, value) => {
+  useEffect(() => {
+    setLocalExpandedPaths(new Set(expandedPaths));
+  }, [expandedPaths]);
+
+  const handleLocalToggle = useCallback((path) => {
+    if (onToggle) {
+      onToggle(path);
+    }
+  }, [onToggle]);
+
+  const handleRootAdd = useCallback((key, value) => {
     if (onAdd) {
       onAdd([], key, value);
     }
     setShowRootAddDialog(false);
-  };
+  }, [onAdd]);
+
+  const handleDelete = useCallback((path) => {
+    console.log('Deleting path:', path);
+    if (onDelete) {
+      onDelete(path);
+    }
+  }, [onDelete]);
 
   const renderTree = useCallback((obj, path = []) => {
     if (!obj) return null;
@@ -238,24 +256,24 @@ function TreeViewV3({
               key={record.id}
               label={record.id}
               value={record}
-              isExpanded={expandedPaths.has('nudge.' + record.id)}
+              isExpanded={localExpandedPaths?.has?.(`${storeName}.${record.id}`) || false}
               depth={1}
-              onToggle={onToggle}
+              onToggle={handleLocalToggle}
               compareValue={
                 compareData && Array.isArray(compareData)
                   ? compareData.find(r => r.id === record.id)
                   : undefined
               }
-              path={['nudge', record.id]}
+              path={[storeName, record.id]}
               onEdit={!readOnly ? onEdit : undefined}
-              onDelete={!readOnly ? onDelete : undefined}
+              onDelete={!readOnly ? handleDelete : undefined}
               onAdd={!readOnly ? onAdd : undefined}
               onValueTransfer={onValueTransfer}
               storeName={storeName}
               editingPath={editingPath}
               setEditingPath={setEditingPath}
               readOnly={readOnly}
-              expandedPaths={expandedPaths}
+              expandedPaths={localExpandedPaths || new Set()}
             />
           ))}
         </div>
@@ -269,7 +287,7 @@ function TreeViewV3({
         const recordId = isRootRecord ? key : path[0];
         const currentPath = isRootRecord ? [key] : [...path, key];
         const pathString = currentPath.join('.');
-        const isExpanded = expandedPaths.has(pathString);
+        const isExpanded = localExpandedPaths?.has?.(pathString) || false;
 
         return (
           <TreeNodeV3
@@ -278,46 +296,40 @@ function TreeViewV3({
             value={value}
             isExpanded={isExpanded}
             depth={path.length}
-            onToggle={onToggle}
+            onToggle={handleLocalToggle}
             compareValue={
               compareData && typeof compareData === 'object'
                 ? compareData[key]
                 : undefined
             }
             path={currentPath}
-            onEdit={!readOnly ? onEdit : undefined}
-            onDelete={!readOnly ? onDelete : undefined}
-            onAdd={!readOnly ? onAdd : undefined}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onAdd={onAdd}
             onValueTransfer={onValueTransfer}
             storeName={storeName}
             editingPath={editingPath}
             setEditingPath={setEditingPath}
             readOnly={readOnly}
-            expandedPaths={expandedPaths}
+            expandedPaths={localExpandedPaths || new Set()}
           />
         );
       });
     }
 
     return null;
-  }, [compareData, expandedPaths, onToggle, onEdit, onDelete, onAdd, onValueTransfer, storeName, editingPath, readOnly]);
+  }, [compareData, localExpandedPaths, handleLocalToggle, onEdit, onDelete, onAdd, onValueTransfer, storeName, editingPath, readOnly]);
 
   return (
-    <div className="min-h-[200px] overflow-auto relative">
-      {showRootAddDialog && (
-        <AddNodeDialog
-          isOpen={showRootAddDialog}
-          onClose={() => setShowRootAddDialog(false)}
-          onAdd={handleRootAdd}
-          path={[]}
-          storeName={storeName}
-        />
-      )}
-      {localData ? (
-        renderTree(localData)
-      ) : (
-        <div className="text-gray-500 text-center py-4">No data available</div>
-      )}
+    <div className="text-sm">
+      {renderTree(localData)}
+      <AddNodeDialog
+        isOpen={showRootAddDialog}
+        onClose={() => setShowRootAddDialog(false)}
+        onAdd={handleRootAdd}
+        path={[]}
+        storeName={storeName}
+      />
     </div>
   );
 }
@@ -350,6 +362,14 @@ function TreeNodeV3({
   const isObject = value && typeof value === 'object' && !Array.isArray(value);
   const isArray = Array.isArray(value);
   const isRootLevel = depth === 0;
+  const hasChildren = isObject || isArray;
+
+  const handleToggleClick = (e) => {
+    e.stopPropagation();
+    if (hasChildren && onToggle) {
+      onToggle(pathString);
+    }
+  };
 
   const handleClone = (e) => {
     e.stopPropagation();
@@ -382,21 +402,33 @@ function TreeNodeV3({
 
   const handleSave = () => {
     try {
+      if (editValue === undefined || editValue === null) {
+        console.error('Edit value is undefined or null');
+        return;
+      }
+
       let parsedValue = editValue;
+      const strValue = String(editValue).trim();
+
       // Try to parse as JSON if it looks like an object or array
-      if (editValue.trim().startsWith('{') || editValue.trim().startsWith('[')) {
-        parsedValue = JSON.parse(editValue);
-      } else if (!isNaN(editValue) && editValue.trim() !== '') {
+      if (strValue.startsWith('{') || strValue.startsWith('[')) {
+        try {
+          parsedValue = JSON.parse(strValue);
+        } catch (jsonError) {
+          console.error('Invalid JSON:', jsonError);
+          return;
+        }
+      } else if (!isNaN(strValue) && strValue !== '') {
         // Convert to number if it's numeric
-        parsedValue = Number(editValue);
-      } else if (editValue.toLowerCase() === 'true' || editValue.toLowerCase() === 'false') {
+        parsedValue = Number(strValue);
+      } else if (strValue.toLowerCase() === 'true' || strValue.toLowerCase() === 'false') {
         // Convert to boolean if it's a boolean string
-        parsedValue = editValue.toLowerCase() === 'true';
+        parsedValue = strValue.toLowerCase() === 'true';
       }
       onEdit(path, parsedValue);
       setEditingPath(null);
     } catch (error) {
-      console.error('Invalid value:', error);
+      console.error('Error saving value:', error);
       // Keep editing state if there's an error
     }
   };
@@ -429,19 +461,53 @@ function TreeNodeV3({
     setIsHovered(false);
   };
 
-  const hasChildren = isObject && Object.keys(value).length > 0;
   const canTransfer = compareValue !== undefined && !readOnly;
   const showTransferButton = canTransfer && (!isObject || !isExpanded);
   const indentStyle = { paddingLeft: `${depth * 20}px` };
 
+  const isExpandedNode = expandedPaths.has(pathString);
+
   const renderValue = () => {
     if (isObject) {
-      if (!isExpanded) {
+      if (!isExpandedNode) {
         return '{...}';
       }
       return null;
     }
+    if (isArray) {
+      if (!isExpandedNode) {
+        return '[...]';
+      }
+      return null;
+    }
     return String(value);
+  };
+
+  const renderChildren = () => {
+    if (!isExpandedNode || !hasChildren) return null;
+
+    const entries = isArray ? value.map((v, i) => [String(i), v]) : Object.entries(value);
+
+    return entries.map(([key, val], index) => (
+      <TreeNodeV3
+        key={`${pathString}.${key}`}
+        label={key}
+        value={val}
+        depth={depth + 1}
+        onToggle={onToggle}
+        path={[...path, key]}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        onAdd={onAdd}
+        onValueTransfer={onValueTransfer}
+        compareValue={compareValue?.[key]}
+        storeName={storeName}
+        editingPath={editingPath}
+        setEditingPath={setEditingPath}
+        readOnly={readOnly}
+        expandedPaths={expandedPaths}
+      />
+    ));
   };
 
   const handleTransfer = () => {
@@ -483,7 +549,10 @@ function TreeNodeV3({
         )}
         {!readOnly && (
           <button
-            onClick={() => onDelete(path)}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onDelete) onDelete(path);
+            }}
             className="p-1 hover:bg-red-100 rounded"
             title="Delete"
           >
@@ -536,73 +605,47 @@ function TreeNodeV3({
       )}
       <div>
         <div
-          className={`flex items-center py-1 group hover:bg-gray-100 ${
-            isEditing ? 'bg-blue-50' : ''
-          }`}
+          className={`flex items-center py-1 hover:bg-gray-50 ${isEditing ? 'bg-blue-50' : ''}`}
           style={indentStyle}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           onDoubleClick={handleDoubleClick}
         >
-          {hasChildren && (
-            <button
-              onClick={() => onToggle(pathString)}
-              className="mr-1 p-1 hover:bg-gray-200 rounded"
-            >
-              {isExpanded ? (
-                <ChevronDown className="w-4 h-4" />
+          <div className="flex-1 flex items-center min-w-0">
+            {hasChildren && (
+              <button
+                onClick={handleToggleClick}
+                className="p-1 hover:bg-gray-200 rounded mr-1"
+              >
+                {isExpandedNode ? (
+                  <ChevronDown className="w-4 h-4" />
+                ) : (
+                  <ChevronRight className="w-4 h-4" />
+                )}
+              </button>
+            )}
+            {!hasChildren && <div className="w-6" />}
+            <div className="flex-1 flex items-center min-w-0 mr-2">
+              <span className="font-medium text-gray-700 mr-2">{label}:</span>
+              {isEditing ? (
+                <input
+                  type="text"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="flex-1 min-w-0 px-2 py-1 border rounded"
+                  autoFocus
+                />
               ) : (
-                <ChevronRight className="w-4 h-4" />
+                <span className="text-gray-900 flex-1 min-w-0 truncate">
+                  {renderValue()}
+                </span>
               )}
-            </button>
-          )}
-          {!hasChildren && <span className="w-6" />}
-          <span className="font-medium mr-2">{label}:</span>
-          {isEditing ? (
-            <div className="flex-1 flex items-center">
-              <input
-                type="text"
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="flex-1 px-2 py-1 border rounded"
-              />
-              {renderEditControls()}
             </div>
-          ) : (
-            <>
-              <span className="flex-1">{renderValue()}</span>
-              {renderEditControls()}
-            </>
-          )}
-        </div>
-        {isExpanded && isObject && (
-          <div>
-            {Object.entries(value).map(([key, childValue]) => (
-              <TreeNodeV3
-                key={key}
-                label={key}
-                value={childValue}
-                isExpanded={expandedPaths.has([...path, key].join('.'))}
-                depth={depth + 1}
-                onToggle={onToggle}
-                compareValue={
-                  compareValue?.[key]
-                }
-                path={[...path, key]}
-                onEdit={onEdit}
-                onDelete={onDelete}
-                onAdd={onAdd}
-                onValueTransfer={onValueTransfer}
-                storeName={storeName}
-                editingPath={editingPath}
-                setEditingPath={setEditingPath}
-                readOnly={readOnly}
-                expandedPaths={expandedPaths}
-              />
-            ))}
+            {renderEditControls()}
           </div>
-        )}
+        </div>
+        {renderChildren()}
       </div>
     </div>
   );

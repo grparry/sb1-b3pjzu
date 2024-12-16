@@ -1,22 +1,63 @@
 // Configuration service to manage API vs Mock mode
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { logger } from './utils/logging';
+
+// Default API base URL
+const DEFAULT_API_URL = 'https://backoffice-test.abaka.me';
+
+// Get API base URL from environment or default
+const getInitialApiBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl) {
+    logger.debug('Using API URL from environment:', envUrl);
+    return envUrl;
+  }
+  logger.debug('Using default API URL:', DEFAULT_API_URL);
+  return DEFAULT_API_URL;
+};
 
 const useConfigStore = create(
   persist(
-    (set) => ({
-      useMockData: false,
-      captureResponses: false,
+    (set, get) => ({
+      useMockData: true,
+      captureResponses: true,
       logNetworkTraffic: false,
-      apiBaseUrl: import.meta.env.VITE_API_URL || 'https://backoffice-test.abaka.me',
-      setUseMockData: (value) => set({ useMockData: value }),
-      setCaptureResponses: (value) => set({ captureResponses: value }),
-      setLogNetworkTraffic: (value) => set({ logNetworkTraffic: value }),
-      setApiBaseUrl: (url) => set({ apiBaseUrl: url }),
+      apiModePanelVisible: true,
+      apiBaseUrl: getInitialApiBaseUrl(),
+      expandedModels: [],
+      expandedCategories: [],
+      setUseMockData: (value) => {
+        logger.debug('Setting mock data mode:', value);
+        set({ useMockData: value });
+      },
+      setCaptureResponses: (value) => {
+        logger.debug('Setting capture responses:', value);
+        set({ captureResponses: value });
+      },
+      setLogNetworkTraffic: (value) => {
+        logger.debug('Setting log network traffic:', value);
+        set({ logNetworkTraffic: value });
+      },
+      setApiModePanelVisible: (value) => {
+        logger.debug('Setting API mode panel visibility:', value);
+        set({ apiModePanelVisible: value });
+      },
+      setApiBaseUrl: (url) => {
+        if (!url) {
+          logger.warn('Attempted to set empty API base URL, using default');
+          url = DEFAULT_API_URL;
+        }
+        logger.debug('Setting API base URL:', url);
+        set({ apiBaseUrl: url });
+      },
+      setExpandedModels: (models) => set({ expandedModels: models }),
+      setExpandedCategories: (categories) => set({ expandedCategories: categories }),
     }),
     {
       name: 'config-storage',
-      getStorage: () => localStorage,
+      storage: typeof window !== 'undefined' ? sessionStorage : undefined,
+      skipHydration: true
     }
   )
 );
@@ -24,27 +65,14 @@ const useConfigStore = create(
 export default useConfigStore;
 
 export const getConfig = () => {
-  const { useMockData, captureResponses, logNetworkTraffic, apiBaseUrl } = useConfigStore.getState();
+  const state = useConfigStore.getState();
   return {
-    useMockData,
-    captureResponses,
-    logNetworkTraffic,
-    apiBaseUrl,
+    useMockData: state.useMockData,
+    captureResponses: state.captureResponses,
+    logNetworkTraffic: state.logNetworkTraffic,
+    apiBaseUrl: state.apiBaseUrl || DEFAULT_API_URL,
+    apiModePanelVisible: state.apiModePanelVisible,
+    expandedModels: state.expandedModels,
+    expandedCategories: state.expandedCategories,
   };
-};
-
-export const setUseMockData = (value) => {
-  useConfigStore.getState().setUseMockData(value);
-};
-
-export const setCaptureResponses = (value) => {
-  useConfigStore.getState().setCaptureResponses(value);
-};
-
-export const setLogNetworkTraffic = (value) => {
-  useConfigStore.getState().setLogNetworkTraffic(value);
-};
-
-export const setApiBaseUrl = (url) => {
-  useConfigStore.getState().setApiBaseUrl(url);
 };

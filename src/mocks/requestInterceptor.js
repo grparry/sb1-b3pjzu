@@ -1,5 +1,6 @@
 import { handlers } from './handlers';
 import { getConfig } from '../services/config';
+import { logger } from '../services/utils/logging';
 
 // Helper to create JSON response with proper headers
 const createResponse = (data, status = 200) => {
@@ -9,7 +10,7 @@ const createResponse = (data, status = 200) => {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Accept'
+      'Access-Control-Allow-Headers': 'Content-Type, Accept, Authorization, x-msw-bypass'
     }
   });
 };
@@ -25,7 +26,11 @@ export async function setupRequestInterception() {
     // Log request if enabled
     const { logNetworkTraffic } = getConfig();
     if (logNetworkTraffic) {
-      console.debug('Request intercepted:', request.method, url.pathname);
+      logger.debug('Request intercepted', { 
+        method: request.method, 
+        pathname: url.pathname,
+        headers: Object.fromEntries(request.headers.entries())
+      });
     }
 
     // Handle CORS preflight
@@ -35,7 +40,7 @@ export async function setupRequestInterception() {
         headers: {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Accept'
+          'Access-Control-Allow-Headers': 'Content-Type, Accept, Authorization, x-msw-bypass'
         }
       });
     }
@@ -46,12 +51,12 @@ export async function setupRequestInterception() {
       if (match) {
         try {
           if (logNetworkTraffic) {
-            console.debug('Handler matched:', handler.name);
+            logger.debug('Handler matched', { handler: handler.name });
           }
           const response = await handler.resolver(request, match);
           return response;
         } catch (error) {
-          console.error('Handler error:', error);
+          logger.error('Handler error', error);
           return createResponse(
             { message: error.message || 'Internal server error' },
             error.status || 500
@@ -62,11 +67,11 @@ export async function setupRequestInterception() {
 
     // No handler found, pass through to original fetch
     if (logNetworkTraffic) {
-      console.debug('No handler found, passing through');
+      logger.debug('No handler found, passing through');
     }
     return originalFetch(input, init);
   };
 
-  console.log('Request interception initialized');
+  logger.info('Request interception initialized');
   return true;
 }

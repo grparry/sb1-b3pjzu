@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { CircleUserRound, LayoutDashboard, Film, FolderOpen, Headphones, Users, Activity, Megaphone, CreditCard, LogOut, X, Bug } from 'lucide-react';
+import { CircleUserRound, LayoutDashboard, Film, FolderOpen, Headphones, Users, Activity, Megaphone, CreditCard, LogOut, X, Bug, Code } from 'lucide-react';
 import PropTypes from 'prop-types';
 import useAuth from '../hooks/useAuth';
 
@@ -14,6 +14,65 @@ function Sidebar({ onClose }) {
     logout();
     navigate('/signin');
   };
+
+  const menuItems = [
+    {
+      label: 'Campaigns',
+      path: '/campaigns',
+      icon: Megaphone
+    },
+    {
+      label: 'Cards',
+      path: '/cards',
+      icon: CreditCard
+    },
+    {
+      label: 'Nudges',
+      path: '/nudges',
+      icon: LayoutDashboard
+    },
+    {
+      label: 'Analytics',
+      path: '/analytics',
+      icon: Activity
+    },
+    {
+      label: 'Media',
+      path: '/media',
+      icon: Film
+    },
+    {
+      label: 'Media Folders',
+      path: '/media-folders',
+      icon: FolderOpen
+    },
+    {
+      label: 'Users',
+      path: '/users',
+      icon: Users
+    },
+    {
+      label: 'Development',
+      icon: Bug,
+      children: [
+        {
+          label: 'Debugging',
+          path: '/debugging',
+          icon: Bug
+        },
+        {
+          label: 'API Testing',
+          path: '/api-testing',
+          icon: Code
+        },
+        {
+          label: 'Token Test',
+          path: '/token-test',
+          icon: CircleUserRound
+        }
+      ]
+    }
+  ];
 
   return (
     <div className="w-64 bg-sky-400 min-h-screen text-white p-6 overflow-y-auto">
@@ -47,84 +106,46 @@ function Sidebar({ onClose }) {
         <div>
           <div className="font-medium mb-2">NBA Studio</div>
           <ul className="pl-4 space-y-2">
-            <li>
-              <Link
-                to="/campaigns"
-                onClick={onClose}
-                className={`flex items-center gap-2 px-3 py-2 rounded ${
-                  isActive('/campaigns') ? 'bg-sky-500' : 'hover:bg-sky-500/50'
-                }`}
-              >
-                <Megaphone size={18} />
-                <span className="truncate">Campaigns</span>
-              </Link>
-            </li>
-            <li>
-              <Link
-                to="/cards"
-                onClick={onClose}
-                className={`flex items-center gap-2 px-3 py-2 rounded ${
-                  isActive('/cards') ? 'bg-sky-500' : 'hover:bg-sky-500/50'
-                }`}
-              >
-                <CreditCard size={18} />
-                <span className="truncate">Cards</span>
-              </Link>
-            </li>
-            <li>
-              <Link
-                to="/nudges"
-                onClick={onClose}
-                className={`flex items-center gap-2 px-3 py-2 rounded ${
-                  isActive('/nudges') ? 'bg-sky-500' : 'hover:bg-sky-500/50'
-                }`}
-              >
-                <LayoutDashboard size={18} />
-                <span className="truncate">Nudges</span>
-              </Link>
-            </li>
-            <li>
-              <Link
-                to="/analytics"
-                onClick={onClose}
-                className={`flex items-center gap-2 px-3 py-2 rounded ${
-                  isActive('/analytics') ? 'bg-sky-500' : 'hover:bg-sky-500/50'
-                }`}
-              >
-                <Activity size={18} />
-                <span className="truncate">Analytics</span>
-              </Link>
-            </li>
+            {menuItems
+              .filter(item => !item.children && 
+                item.path !== '/users' && 
+                item.path !== '/media' && 
+                item.path !== '/media-folders'
+              )
+              .map(item => (
+              <li key={item.path}>
+                <Link
+                  to={item.path}
+                  onClick={onClose}
+                  className={`flex items-center gap-2 px-3 py-2 rounded ${
+                    isActive(item.path) ? 'bg-sky-500' : 'hover:bg-sky-500/50'
+                  }`}
+                >
+                  <item.icon size={18} />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              </li>
+            ))}
           </ul>
         </div>
 
         <div>
           <div className="font-medium mb-2">Content Studio</div>
           <ul className="pl-4 space-y-2">
-            <li>
-              <Link
-                to="/media"
-                onClick={onClose}
-                className={`flex items-center gap-2 px-3 py-2 rounded ${
-                  isActive('/media') ? 'bg-sky-500' : 'hover:bg-sky-500/50'
-                }`}
-              >
-                <Film size={18} />
-                <span className="truncate">Media</span>
-              </Link>
-            </li>
-            <li>
-              <Link
-                to="/media-folders"
-                onClick={onClose}
-                className={`flex items-center gap-2 px-3 py-2 rounded ${
-                  isActive('/media-folders') ? 'bg-sky-500' : 'hover:bg-sky-500/50'
-                }`}
-              >
-                <FolderOpen size={18} />
-                <span className="truncate">Media Folders</span>
-              </Link>
-            </li>
+            {menuItems.filter(item => item.path === '/media' || item.path === '/media-folders').map(item => (
+              <li key={item.path}>
+                <Link
+                  to={item.path}
+                  onClick={onClose}
+                  className={`flex items-center gap-2 px-3 py-2 rounded ${
+                    isActive(item.path) ? 'bg-sky-500' : 'hover:bg-sky-500/50'
+                  }`}
+                >
+                  <item.icon size={18} />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              </li>
+            ))}
           </ul>
         </div>
 
@@ -138,48 +159,40 @@ function Sidebar({ onClose }) {
         <div>
           <div className="font-medium mb-2">Access Studio</div>
           <ul className="pl-4 space-y-2">
-            <li>
-              <Link
-                to="/users"
-                onClick={onClose}
-                className={`flex items-center gap-2 px-3 py-2 rounded ${
-                  isActive('/users') ? 'bg-sky-500' : 'hover:bg-sky-500/50'
-                }`}
-              >
-                <Users size={18} />
-                <span className="truncate">Users</span>
-              </Link>
-            </li>
-            <li>
-              <Link
-                to="/activities"
-                onClick={onClose}
-                className={`flex items-center gap-2 px-3 py-2 rounded ${
-                  isActive('/activities') ? 'bg-sky-500' : 'hover:bg-sky-500/50'
-                }`}
-              >
-                <Activity size={18} />
-                <span className="truncate">Activities</span>
-              </Link>
-            </li>
+            {menuItems.filter(item => item.path === '/users').map(item => (
+              <li key={item.path}>
+                <Link
+                  to={item.path}
+                  onClick={onClose}
+                  className={`flex items-center gap-2 px-3 py-2 rounded ${
+                    isActive(item.path) ? 'bg-sky-500' : 'hover:bg-sky-500/50'
+                  }`}
+                >
+                  <item.icon size={18} />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              </li>
+            ))}
           </ul>
         </div>
 
         <div>
           <div className="font-medium mb-2">Development</div>
           <ul className="pl-4 space-y-2">
-            <li>
-              <Link
-                to="/debugging"
-                onClick={onClose}
-                className={`flex items-center gap-2 px-3 py-2 rounded ${
-                  isActive('/debugging') ? 'bg-sky-500' : 'hover:bg-sky-500/50'
-                }`}
-              >
-                <Bug size={18} />
-                <span className="truncate">Debugging</span>
-              </Link>
-            </li>
+            {menuItems.find(item => item.label === 'Development').children.map(item => (
+              <li key={item.path}>
+                <Link
+                  to={item.path}
+                  onClick={onClose}
+                  className={`flex items-center gap-2 px-3 py-2 rounded ${
+                    isActive(item.path) ? 'bg-sky-500' : 'hover:bg-sky-500/50'
+                  }`}
+                >
+                  <item.icon size={18} />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              </li>
+            ))}
           </ul>
         </div>
       </nav>

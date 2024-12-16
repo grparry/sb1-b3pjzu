@@ -18,9 +18,10 @@ function TreeViewCompareV4({
     
     const traverse = (current, path) => {
       if (current && typeof current === 'object') {
-        paths.add(path);
+        if (path) paths.add(path);
         Object.keys(current).forEach(key => {
-          traverse(current[key], path ? `${path}.${key}` : key);
+          const newPath = path ? `${path}.${key}` : key;
+          traverse(current[key], newPath);
         });
       }
     };
@@ -29,34 +30,8 @@ function TreeViewCompareV4({
     return paths;
   };
 
-  // Initialize expandedPaths with all possible paths
-  const [expandedPaths, setExpandedPaths] = useState(() => {
-    const allPaths = new Set();
-    
-    // Add the root store path
-    allPaths.add(storeName);
-    
-    // Add paths from database record
-    if (databaseRecord && databaseRecord.length > 0) {
-      databaseRecord.forEach(record => {
-        // Add the record ID level path
-        allPaths.add(`${storeName}.${record.id}`);
-        getAllPaths(record).forEach(path => allPaths.add(`${storeName}.${record.id}.${path}`));
-      });
-    }
-    
-    // Add paths from mock response
-    if (mockResponse && mockResponse.length > 0) {
-      mockResponse.forEach(record => {
-        // Add the record ID level path
-        allPaths.add(`${storeName}.${record.id}`);
-        getAllPaths(record).forEach(path => allPaths.add(`${storeName}.${record.id}.${path}`));
-      });
-    }
-    
-    return allPaths;
-  });
-
+  const [expandedPaths, setExpandedPaths] = useState(new Set());
+  const [pendingUpdates, setPendingUpdates] = useState(new Map());
   const [showCloneDialog, setShowCloneDialog] = useState(false);
 
   const handleToggle = useCallback((path) => {
@@ -72,10 +47,46 @@ function TreeViewCompareV4({
   }, []);
 
   const handleValueTransfer = useCallback((path, value) => {
-    if (value !== undefined && onUpdateExisting) {
-      onUpdateExisting(path, value);
+    if (value !== undefined) {
+      console.log('Transfer path:', path);
+      // Store the path as is, since it's already in the correct format
+      setPendingUpdates(prev => {
+        const next = new Map(prev);
+        const pathString = path.join('.');
+        console.log('Storing update:', pathString, value);
+        next.set(pathString, value);
+        return next;
+      });
     }
-  }, [onUpdateExisting]);
+  }, []);
+
+  const handleSave = useCallback(() => {
+    if (pendingUpdates.size > 0 && onUpdateExisting) {
+      console.log('Pending updates:', Array.from(pendingUpdates.entries()));
+      // Convert Map entries to arrays of paths and values
+      const updates = Array.from(pendingUpdates.entries()).reduce((acc, [pathString, value]) => {
+        // Path string is already in the correct format (e.g. "high-users-repairs.contentTemplate.title")
+        const pathParts = pathString.split('.');
+        console.log('Path parts:', pathParts);
+        
+        // Add to accumulator (ensure we have at least a record ID)
+        if (pathParts.length > 0) {
+          acc.paths.push(pathParts);
+          acc.values.push(value);
+        }
+        return acc;
+      }, { paths: [], values: [] });
+
+      console.log('Updates to apply:', updates);
+      // Call onUpdateExisting with arrays of paths and values
+      if (updates.paths.length > 0) {
+        onUpdateExisting(updates.paths, updates.values);
+      }
+      
+      // Clear pending updates
+      setPendingUpdates(new Map());
+    }
+  }, [pendingUpdates, onUpdateExisting]);
 
   const handleClone = (newId) => {
     onCreateNew(newId);
@@ -91,7 +102,7 @@ function TreeViewCompareV4({
           key={record.id}
           label={record.id}
           value={record}
-          isExpanded={expandedPaths.has(`${storeName}.${record.id}`)}
+          isExpanded={expandedPaths.has(record.id)}
           depth={0}
           onToggle={handleToggle}
           compareValue={
@@ -99,11 +110,12 @@ function TreeViewCompareV4({
               ? compareData.find(r => r.id === record.id)
               : undefined
           }
-          path={[storeName, record.id]}
+          path={[record.id]}
           onValueTransfer={handleValueTransfer}
           storeName={storeName}
           readOnly={readOnly}
           expandedPaths={expandedPaths}
+          pendingUpdates={pendingUpdates}
         />
       ));
     }
@@ -113,64 +125,31 @@ function TreeViewCompareV4({
         key={key}
         label={key}
         value={value}
-        isExpanded={expandedPaths.has(`${storeName}.${key}`)}
+        isExpanded={expandedPaths.has(key)}
         depth={0}
         onToggle={handleToggle}
-        compareValue={compareData?.[key]}
-        path={[storeName, key]}
+        compareValue={compareData ? compareData[key] : undefined}
+        path={[key]}
         onValueTransfer={handleValueTransfer}
         storeName={storeName}
         readOnly={readOnly}
         expandedPaths={expandedPaths}
+        pendingUpdates={pendingUpdates}
       />
     ));
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-lg font-semibold">Compare View</h2>
-        <div className="space-x-2">
-          {!databaseRecord && (
-            <button
-              onClick={() => setShowCloneDialog(true)}
-              className="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-blue-500 rounded-md hover:bg-blue-600"
-            >
-              <Copy className="w-4 h-4 mr-2" />
-              Clone
-            </button>
-          )}
-          {databaseRecord && (
-            <button
-              onClick={() => onApproveNew()}
-              className="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-green-500 rounded-md hover:bg-green-600"
-            >
-              <Save className="w-4 h-4 mr-2" />
-              Save
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div className="border rounded-lg p-4">
-          <h2 className="text-lg font-semibold mb-4">Database Record</h2>
-          <div className="min-h-[200px] overflow-auto relative">
-            {databaseRecord ? (
-              renderTree(databaseRecord, mockResponse, false)
-            ) : (
-              <div className="text-gray-500 text-center py-4">No database record available</div>
-            )}
+    <div className="flex flex-col h-full relative">
+      <div className="flex-1 overflow-auto">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <h3 className="font-semibold mb-2">Database Record</h3>
+            {renderTree(databaseRecord, mockResponse, false)}
           </div>
-        </div>
-        <div className="border rounded-lg p-4">
-          <h2 className="text-lg font-semibold mb-4">Mock Response</h2>
-          <div className="min-h-[200px] overflow-auto relative">
-            {mockResponse ? (
-              renderTree(mockResponse, null, true)
-            ) : (
-              <div className="text-gray-500 text-center py-4">No mock response available</div>
-            )}
+          <div>
+            <h3 className="font-semibold mb-2">Mock Response</h3>
+            {renderTree(mockResponse, databaseRecord, true)}
           </div>
         </div>
       </div>
@@ -182,6 +161,29 @@ function TreeViewCompareV4({
           storeName={storeName}
         />
       )}
+
+      {/* Save/Cancel buttons */}
+      <div className="sticky bottom-0 right-0 flex justify-end gap-2 p-4 bg-white border-t">
+        {pendingUpdates.size > 0 && (
+          <button
+            onClick={() => setPendingUpdates(new Map())}
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+          >
+            Cancel Changes
+          </button>
+        )}
+        <button
+          onClick={handleSave}
+          disabled={pendingUpdates.size === 0}
+          className={`px-4 py-2 rounded ${
+            pendingUpdates.size > 0
+              ? 'bg-blue-500 text-white hover:bg-blue-600'
+              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+          }`}
+        >
+          {pendingUpdates.size > 0 ? `Save ${pendingUpdates.size} Changes` : 'No Changes'}
+        </button>
+      </div>
     </div>
   );
 }

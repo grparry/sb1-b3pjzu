@@ -1,3 +1,4 @@
+import React from 'react';
 import { createBrowserRouter, createRoutesFromElements, Route, Outlet } from 'react-router-dom';
 import App from './App';
 import InitializationWrapper from './components/InitializationWrapper';

@@ -1,9 +1,9 @@
 // API Base URL and endpoints
-const API_BASE = import.meta.env.DEV ? '' : 'https://backoffice-test.abaka.me';  // Use proxy in development
+const API_BASE = 'https://backoffice-test.abaka.me';
 const ENDPOINTS = {
   TOKEN: '/api/enterprise/token',
   NUDGE_ALL: '/api/studio/picks/nudge',
-  NUDGE_BY_ID: (id) => `/api/nudge/notification/${id}`,
+  NUDGE_BY_ID: (id) => `/api/nudge/notifications/${id}`, // Updated NUDGE_BY_ID endpoint
   USERS: `/api/accessmanagement/users`,
   MEDIA: `/api/studio/media`,
   FOLDERS: `/api/studio/media/folders`,
@@ -11,38 +11,105 @@ const ENDPOINTS = {
 };
 
 import useConfigStore from './config';
+import { logger } from './utils/logging'; // Import the Logger module
 
 // Authentication credentials
 const AUTH_CREDENTIALS = {
   "AppId": "a4745b09-e957-47e1-977a-c762ada74110",
-  "AppSecret": "F:CG660oWPj2lDyFjQ-tVF]v.c?oBy-g"
+  "AppSecret": "F:CG660oWPj2lDyFjQ-tVF]v.c?oBy-g",
+  "Resource": "https://backoffice-test.abaka.me"  // Add resource to match the API endpoint
 };
 
-let authToken = null;
+// Auth token state
+let authState = {
+  token: null,
+  expiresAt: null
+};
+
+// Function to clear the auth token
+function clearAuthToken() {
+  logger.debug('Clearing auth token');
+  authState = { token: null, expiresAt: null };
+}
 
 // Function to get authentication token
 async function getAuthToken() {
-  if (authToken) return authToken;
-
-  const url = `${API_BASE}${ENDPOINTS.TOKEN}`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json',
-      'x-msw-bypass': 'true'
-    },
-    body: JSON.stringify(AUTH_CREDENTIALS)
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || 'Failed to get auth token');
+  const now = new Date();
+  const { useMockData } = useConfigStore.getState();
+  
+  // Check if token exists and is not expired
+  if (authState.token && authState.expiresAt && new Date(authState.expiresAt) > now) {
+    return authState.token;
   }
 
-  const data = await response.json();
-  authToken = data.token;
-  return authToken;
+  // Clear expired token
+  authState = { token: null, expiresAt: null };
+
+  const url = `${API_BASE}${ENDPOINTS.TOKEN}`;
+  const headers = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json'
+  };
+
+  // Add MSW bypass header if not using mock data
+  if (!useMockData) {
+    headers['x-msw-bypass'] = 'true';
+  }
+
+  const requestOptions = {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(AUTH_CREDENTIALS)
+  };
+
+  try {
+    logger.debug('Getting auth token with credentials:', { ...AUTH_CREDENTIALS, AppSecret: '[REDACTED]' });
+    
+    // Log the request
+    await logApiRequest('POST', url, requestOptions);
+
+    const response = await fetch(url, requestOptions);
+    // Log the response
+    await logApiResponse(url, response);
+
+    const responseData = await response.clone().json().catch(() => ({}));
+    logger.debug('Auth token response:', { 
+      status: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      data: responseData
+    });
+
+    if (!response.ok) {
+      throw new Error(responseData.message || `Failed to get auth token: ${response.status}`);
+    }
+
+    // Handle both string token and object with token field
+    let token;
+    if (typeof responseData === 'string') {
+      token = responseData;
+    } else if (typeof responseData === 'object' && responseData.token) {
+      token = responseData.token;
+    } else {
+      throw new Error('Invalid token response: missing token');
+    }
+
+    // Store token with expiration
+    const expiresIn = (typeof responseData === 'object' && responseData.expiresIn) || 3600; // Default to 1 hour
+    authState = {
+      token,
+      expiresAt: new Date(now.getTime() + (expiresIn * 1000))
+    };
+    
+    logger.info('Successfully obtained auth token, expires in:', expiresIn, 'seconds');
+    return authState.token;
+  } catch (error) {
+    // Clear auth state on error
+    authState = { token: null, expiresAt: null };
+    logger.error('Failed to get auth token:', error);
+    // Log the error response
+    await logApiResponse(url, null, error);
+    throw error;
+  }
 }
 
 // Helper function to log API requests
@@ -72,8 +139,8 @@ async function logApiRequest(method, url, options = {}) {
 // Helper function to log API responses
 async function logApiResponse(url, response, error = null) {
   try {
-    const { logNetworkTraffic } = useConfigStore.getState();
-    if (!logNetworkTraffic) return;
+    const { captureResponses } = useConfigStore.getState();
+    if (!captureResponses) return;
 
     const { logNetwork } = await import('./storage/networkLogs');
     const responseData = {
@@ -112,17 +179,37 @@ async function logApiResponse(url, response, error = null) {
 }
 
 // Helper function to handle API responses
-async function handleResponse(response) {
+async function handleResponse(response, url, options, retryCount = 0) {
+  const responseData = await response.json().catch(() => ({}));
+  
+  logger.debug('API Response:', {
+    url,
+    status: response.status,
+    headers: Object.fromEntries(response.headers.entries()),
+    data: responseData
+  });
+
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || `HTTP error! status: ${response.status}`);
+    // Handle 401 by clearing token and retrying once
+    if (response.status === 401 && retryCount === 0) {
+      logger.info('Got 401, clearing token and retrying');
+      authState = { token: null, expiresAt: null };
+      const token = await getAuthToken();
+      const newOptions = {
+        ...options,
+        headers: {
+          ...options.headers,
+          'Authorization': `Bearer ${token}`
+        }
+      };
+      const retryResponse = await fetch(url, newOptions);
+      return handleResponse(retryResponse, url, newOptions, retryCount + 1);
+    }
+
+    throw new Error(responseData.message || `HTTP error! status: ${response.status}`);
   }
   
-  const contentType = response.headers.get('content-type');
-  if (contentType && contentType.includes('application/json')) {
-    return response.json();
-  }
-  return response.text();
+  return responseData;
 }
 
 // Helper function to calculate Content-Length
@@ -143,51 +230,60 @@ function getHost(url) {
 
 // Helper function to make API calls with proper configuration
 async function makeApiCall(endpoint, options = {}) {
+  const { useMockData } = useConfigStore.getState();
+  const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
+  const token = await getAuthToken();
+
+  logger.debug('makeApiCall - Initial token:', token ? 'present' : 'missing');
+
+  const defaultHeaders = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  };
+
+  // Add MSW bypass header if not using mock data
+  if (!useMockData) {
+    defaultHeaders['x-msw-bypass'] = 'true';
+  }
+
+  logger.debug('makeApiCall - Default headers:', defaultHeaders);
+  logger.debug('makeApiCall - Incoming options:', {
+    ...options,
+    body: options.body ? JSON.parse(options.body) : undefined
+  });
+
+  // First create a shallow copy of options without headers
+  const { headers: optionsHeaders, ...restOptions } = options;
+
+  // Then create requestOptions with merged headers
+  const requestOptions = {
+    ...restOptions,
+    headers: {
+      ...defaultHeaders,
+      ...(optionsHeaders || {})
+    }
+  };
+
+  // Separate log for headers to ensure they're visible
+  logger.debug('makeApiCall - Final headers:', requestOptions.headers);
+  logger.debug('makeApiCall - Final request:', {
+    method: requestOptions.method,
+    body: requestOptions.body ? JSON.parse(requestOptions.body) : undefined
+  });
+
+  // Log the request
+  await logApiRequest(requestOptions.method || 'GET', url, requestOptions);
+
   try {
-    // Ensure options.headers exists
-    options.headers = options.headers || {};
-
-    // Build the full URL
-    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
-
-    // Set Content-Length header if there's a body and header doesn't exist
-    if (options.body && !options.headers['Content-Length']) {
-      options.headers['Content-Length'] = calculateContentLength(options.body);
-    }
-
-    // Set Host header if it doesn't exist
-    if (!options.headers['Host']) {
-      options.headers['Host'] = getHost(url);
-    }
-
-    // Add CORS headers
-    options.headers['Origin'] = window.location.origin;
-    options.mode = 'cors';
-    options.credentials = 'include';
-
-    // Add authentication token if available and not requesting a token
-    if (!endpoint.includes(ENDPOINTS.TOKEN) && await getAuthToken()) {
-      options.headers['Authorization'] = `Bearer ${await getAuthToken()}`;
-    }
-
-    // Log the request if enabled
-    await logApiRequest(options.method || 'GET', url, options);
-
-    // Make the API call
-    const response = await fetch(url, {
-      ...options,
-      headers: options.headers
-    });
-
-    // Log the response if enabled
+    const response = await fetch(url, requestOptions);
+    // Log response headers for debugging
+    logger.debug('makeApiCall - Response headers:', Object.fromEntries(response.headers.entries()));
+    // Log the response before handling it
     await logApiResponse(url, response);
-
-    // Handle the response
-    return handleResponse(response);
+    return handleResponse(response.clone(), url, requestOptions);
   } catch (error) {
-    console.error('API call error:', error);
-    // Log error response if enabled
-    await logApiResponse(endpoint, null, error);
+    logApiResponse(url, null, error);
     throw error;
   }
 }
@@ -197,17 +293,8 @@ function shouldCaptureResponse(request) {
   try {
     const url = new URL(request.url);
     
-    // Don't capture authentication or refresh token requests
-    if (url.pathname.includes('/auth/') || url.pathname.includes('/token')) {
-      return false;
-    }
-    
-    // Only capture GET and POST requests
-    if (!['GET', 'POST'].includes(request.method)) {
-      return false;
-    }
-    
-    return true;
+    // Capture all API requests
+    return url.pathname.startsWith('/api/');
   } catch (error) {
     console.warn('Invalid URL in shouldCaptureResponse:', error);
     return false;
@@ -376,15 +463,18 @@ async function fetchNudges(channel = 'APP_INSTANT') {
   const url = ENDPOINTS.NUDGE_ALL;
   const options = {
     method: 'POST',
-    headers: {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json'
-    },
     body: JSON.stringify({ channel })
   };
 
+  logger.debug('fetchNudges - Request options:', {
+    ...options,
+    body: JSON.parse(options.body)
+  });
+
   const response = await makeApiCall(url, options);
-  return response.data.map(transformFromNotificationRM);
+  // Handle both wrapped and unwrapped responses
+  const nudges = Array.isArray(response) ? response : (response.data || []);
+  return nudges.map(transformFromNotificationRM);
 }
 
 async function fetchNudge(nudgeId) {
@@ -472,6 +562,20 @@ async function fetchMediaItem(mediaId) {
 
   const url = `${ENDPOINTS.MEDIA}/${mediaId}`;
   return makeApiCall(url);
+}
+
+async function createMedia(data) {
+  const url = ENDPOINTS.MEDIA;
+  const options = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify(data)
+  };
+
+  return makeApiCall(url, options);
 }
 
 async function uploadMedia(data, folderId = '') {
@@ -661,8 +765,9 @@ async function testCampaign(campaignId) {
 export {
   fetchUsers, fetchUser, createUser, updateUser, deleteUser,
   fetchNudges, fetchNudge, createNudge, updateNudge, deleteNudge,
-  fetchMedia, fetchMediaItem, uploadMedia, updateMedia, deleteMedia,
+  fetchMedia, fetchMediaItem, uploadMedia, createMedia, updateMedia, deleteMedia,
   fetchFolders, fetchFolder, createFolder, updateFolder, deleteFolder,
   activateCampaign, deactivateCampaign, testCampaign,
-  makeApiCall
+  makeApiCall,
+  clearAuthToken
 };

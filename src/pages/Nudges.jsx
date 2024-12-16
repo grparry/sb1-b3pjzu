@@ -1,28 +1,28 @@
-import React, { useEffect } from 'react';
+import React, { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Breadcrumb from '../components/Breadcrumb';
 import CollectionTreeView from '../components/CollectionTreeView';
-import useNudgeStore from '../stores/nudgeStore';
-import useAppStore from '../stores/appStore';
+import CollectionModal from '../components/modals/CollectionModal';
+import useCollectionStore from '../stores/collectionStore';
 
 function Nudges() {
-  const { isInitialized } = useAppStore();
-  const { fetchNudges, isLoading, error } = useNudgeStore();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const { createCollection } = useCollectionStore();
 
-  useEffect(() => {
-    if (isInitialized) {
-      fetchNudges();
+  const handleCreateCollection = async (collectionData) => {
+    try {
+      await createCollection({
+        name: collectionData.name,
+        description: collectionData.description,
+        category: collectionData.category
+      });
+      setIsModalOpen(false);
+    } catch (error) {
+      console.error('Failed to create collection:', error);
+      alert('Failed to create collection. Please try again.');
     }
-  }, [isInitialized, fetchNudges]);
-
-  if (error) {
-    return (
-      <div className="p-6 text-red-500">
-        Error loading nudges: {error}
-      </div>
-    );
-  }
+  };
 
   return (
     <>
@@ -42,7 +42,10 @@ function Nudges() {
             <Plus size={20} />
             NEW NUDGE
           </Link>
-          <button className="flex items-center gap-2 px-6 py-2 rounded-full border border-sky-500 text-sky-500 hover:bg-sky-50">
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 px-6 py-2 rounded-full border border-sky-500 text-sky-500 hover:bg-sky-50"
+          >
             <Plus size={20} />
             NEW COLLECTION
           </button>
@@ -50,8 +53,15 @@ function Nudges() {
       </div>
 
       <div className="bg-white rounded-lg shadow">
-        <CollectionTreeView isLoading={isLoading} />
+        <CollectionTreeView />
       </div>
+
+      <CollectionModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSubmit={handleCreateCollection}
+        initialData={{}}
+      />
     </>
   );
 }
